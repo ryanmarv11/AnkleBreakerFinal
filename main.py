@@ -2,10 +2,13 @@ import sys
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QStackedWidget
 )
+from PyQt6.QtWidgets import QTabWidget
+
 from PyQt6.QtWidgets import QFileDialog, QWidget, QVBoxLayout, QLabel, QPushButton, QApplication
 from PyQt6.QtCore import Qt
 import pandas as pd
 from types import SimpleNamespace
+import os
 
 
 def create_welcome_screen(stack, state):
@@ -22,6 +25,8 @@ def create_welcome_screen(stack, state):
 
     # Button to open file dialog for multiple files
     select_files_button = QPushButton("Select CSV Files")
+    select_folder_button = QPushButton("Select Folder")
+
 
     def select_files():
         file_paths, _ = QFileDialog.getOpenFileNames(
@@ -52,8 +57,45 @@ def create_welcome_screen(stack, state):
                 status += f" ({len(errors)} failed)"
             file_label.setText(status)
 
+    def select_folder():
+        folder_path = QFileDialog.getExistingDirectory(
+            None,
+            "Select Folder Containing CSV Files",
+            ""
+        )
+
+        if folder_path:
+            csv_paths = [
+                os.path.join(folder_path, f)
+                for f in os.listdir(folder_path)
+                if f.lower().endswith(".csv")
+            ]
+
+            state["csv_paths"] = csv_paths
+            loaded_dfs = []
+            errors = []
+
+            for path in csv_paths:
+                try:
+                    df = pd.read_csv(path)
+                    loaded_dfs.append(df)
+                except Exception as e:
+                    errors.append(f"{path}: {e}")
+
+            state["dataframes"] = loaded_dfs
+            state["df"] = pd.concat(loaded_dfs, ignore_index=True) if loaded_dfs else None
+
+            status = f"Loaded {len(loaded_dfs)} files"
+            if errors:
+                status += f" ({len(errors)} failed)"
+            file_label.setText(status)
+
+
     select_files_button.clicked.connect(select_files)
     layout.addWidget(select_files_button)
+
+    select_folder_button.clicked.connect(select_folder)
+    layout.addWidget(select_folder_button)
 
     next_button = QPushButton("Next")
     next_button.clicked.connect(lambda: stack.setCurrentIndex(1))
@@ -108,11 +150,62 @@ def create_assign_status_screen(stack):
     screen.setLayout(layout)
     return screen
 
+def create_program_flow_tab(stack, state):
+    # Set up the stack just like your main flow
+    welcome_screen = create_welcome_screen(stack, state)
+    session_creation_screen = create_session_creation_screen(stack)
+    assign_status_screen = create_assign_status_screen(stack)
+
+    stack.addWidget(welcome_screen)
+    stack.addWidget(session_creation_screen)
+    stack.addWidget(assign_status_screen)
+    stack.setCurrentIndex(0)
+
+    return stack, state
+
+def create_flagged_sessions_tab(state):
+    screen = QWidget()
+    layout = QVBoxLayout()
+
+    label = QLabel("This tab was intentionally left blank.")
+    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    layout.addWidget(label)
+    screen.setLayout(layout)
+    return screen
+
+
+def create_session_crud_tab(state):
+    screen = QWidget()
+    layout = QVBoxLayout()
+
+    label = QLabel("This tab was *also* intentionally left blank.")
+    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    layout.addWidget(label)
+    screen.setLayout(layout)
+    return screen
+
+
+def create_main_window():
+    tabs = QTabWidget()
+
+    state = {}
+    stack = QStackedWidget()
+
+    tabs.addTab(create_program_flow_tab(stack, state), "Program")
+    tabs.addTab(create_flagged_sessions_tab(state), "Flagged")
+    tabs.addTab(create_session_crud_tab(state), "Session Admin")
+
+    return tabs
+
 
 def main():
     app = QApplication(sys.argv)
-    stack = QStackedWidget()
-    state = {}
+    tabs = QTabWidget()
+    stack, state = QStackedWidget(), {}
+    
+    stack, state = create_program_flow_tab(stack, state)
 
     welcome_screen = create_welcome_screen(stack, state)
     blank_screen = create_session_creation_screen(stack)
