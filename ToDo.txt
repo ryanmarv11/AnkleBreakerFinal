@@ -1,1 +1,48 @@
-ToDo.txt
+Tabs
+ 1) Program Flow
+    In this tab we will be doing all of the processing for the csv's 
+ 2) Reading Flagged Sessions and Documents
+    In this tab there will be a snapshot of the file explorer in the sessions folder
+    This snapshot will have all of the flagged sessions, then clicking on a session will expand to show the names of the flagged files
+    Also in this tab the user will be able to Pay/Unpay a Session, Flag/Unflag a Session, Flag/Unflag a document (this will involve changing the note for the flagee)
+    In addition, allow the user to view the metadata and delete a session
+ 3) File viewing
+    This will be similar to the second tab except the user will only be printing the files
+ 4) Other functions
+    This will be expanded on but for now just CRUD the clubs
+Screens
+ 1) Welcome screen
+        In this screen the user will be able to do three things, select a folder, select some csvs, or go next, next button will always be there but let's gray it out until something has been selected
+        As for error catching, we'll just keep the next button greyed and have a status label below the buttons
+        When files are selected, print out their names, if a file is not a csv, highlight it in red
+        Select Folder button
+        Select csvs button
+        Status line
+        Next button
+ 2) Session Creation screen
+        User will pick a date
+        User will pick a club
+        User will be able to add a new club
+        After user has picked a date and a club, next button will be ungrayed
+        Next button
+        Back button
+ 3) Assign Status screen
+        Have a default status assigned in the metadata or in the state somewhere
+        If default statuses have not been assigned yet, assign them
+        Instead of an error window that pops up when next is erroneously clicked, make a graphic that does the following
+            If a file is good to go: put a checkmark next to it's names
+            If a file is not good to go: put an X, highlight it, then show the names under it
+        Once all Person's are good to go, ungray the next button
+        Back button
+        Have a dropdown that populates when a thing is selected
+        Have the counts be on the right side
+ 4) Assign Fee Schedule Screen
+        Each file will have a number input, must be a positive integer or create a red x next to the file name
+        Make a three column table, file name, status, price
+        Have an input and a button for an assign all scheme
+        Next button
+        Back button
+ 5) Payment summary screen
+        Next button
+        Back button
+        Paid button
