@@ -45,16 +45,41 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
     select_files_btn = QPushButton("Select CSV Files")
     select_folder_btn = QPushButton("Select Folder")
 
+    # --- Custom default status logic ---
+    def determine_default_status(notes: str) -> str:
+        n = str(notes).lower()
+        if "comped" in n:
+            return "comped"
+        elif "refund" in n:
+            return "refund"
+        elif "manually confirmed by" in n:
+            return "manual"
+        elif "not over capacity: register" in n:
+            return "regular"
+        else:
+            return "other"
+
     def load_paths(paths: List[str]):
         state["csv_paths"] = paths
         dfs, errors = [], []
         for p in paths:
             try:
-                dfs.append(pd.read_csv(p))
+                df = pd.read_csv(p, skiprows=1, header=None)  # Skip first row
+                df.columns = ["Name", "Email", "Phone Number", "Status", "Registration Time", "Notes"]
+
+                # Add default_status based on notes
+                df["default_status"] = df["Notes"].apply(determine_default_status)
+                dfs.append(df)
+
             except Exception as exc:
                 errors.append(f"{p}: {exc}")
+
         state["dataframes"] = dfs
         state["df"] = pd.concat(dfs, ignore_index=True) if dfs else None
+
+        print(state["df"].columns)
+        print(state["df"])
+
         msg = f"Loaded {len(dfs)} files"
         if errors:
             msg += f" ( {len(errors)} failed )"
