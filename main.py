@@ -93,8 +93,6 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
         state["dataframes"] = dfs
         state["df"] = pd.concat(dfs, ignore_index=True) if dfs else None
 
-        print(state["df"].columns)
-        print(state["df"])
 
         msg = f"Loaded {len(dfs)} files"
         if errors:
@@ -225,7 +223,6 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
             sessions_path = os.path.join(base_dir, "sessions")
             os.makedirs(sessions_path, exist_ok=True)
 
-            print(state.keys())
             if "csv_paths" not in state or "dataframes" not in state:
                 status_ready.setText("Error: No data loaded in state.")
                 return
@@ -461,7 +458,18 @@ def create_assign_status_screen(stack, state) -> QWidget:
     if dataframes:
         update_person_buttons(0)
 
+
+    def go_to_fee_schedule():
+        # Replace the placeholder with actual screen
+        fee_screen = create_fee_schedule_screen(stack, state)
+        stack.removeWidget(stack.widget(3))  # Remove placeholder
+        stack.insertWidget(3, fee_screen)    # Insert real widget at index 3
+        stack.setCurrentIndex(3)
     next_btn = QPushButton("Next")
+    next_btn.clicked.connect(go_to_fee_schedule)
+
+
+
     left_layout.addWidget(next_btn)
 
     back_btn = QPushButton("Back")
@@ -473,19 +481,141 @@ def create_assign_status_screen(stack, state) -> QWidget:
 
     return screen
 
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QLabel, QPushButton, QLineEdit,
+    QHBoxLayout, QFormLayout
+)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIntValidator
+
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QLabel, QPushButton, QLineEdit,
+    QHBoxLayout, QFormLayout
+)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIntValidator
+import os
+
+def create_fee_schedule_screen(stack, state) -> QWidget:
+    screen = QWidget()
+    layout = QVBoxLayout(screen)
+    def event(e):
+        if e.type() == e.Type.Show:
+            populate_fee_inputs()
+        return QWidget.event(screen, e)
+
+    screen.event = event
+
+    layout.addWidget(QLabel("Fee Schedule (Index 3, Step 4)"))
+    
+    fee_inputs = {}
+    state["fee_schedule"] = {}  # Reset/init fee schedule in state
+
+    validator = QIntValidator()
+    validator.setBottom(1)
+    def populate_fee_inputs():
+        # Only populate if not already done
+        if fee_inputs or not state.get("csv_paths"):
+            return
+
+        for path in state["csv_paths"]:
+            filename = os.path.basename(path)
+            input_field = QLineEdit()
+            input_field.setValidator(validator)
+            input_field.setPlaceholderText("Enter cost")
+            file_form.addRow(QLabel(filename), input_field)
+            fee_inputs[filename] = input_field
+
+
+    # Debug: Show csv paths available
+    csv_paths = state.get("csv_paths", [])
+    print("Fee Schedule Screen: csv_paths =", csv_paths)
+
+    file_form = QFormLayout() 
+
+    if not csv_paths:
+        layout.addWidget(QLabel("⚠️ No CSV files found in state."))
+    else:
+        for path in csv_paths:
+            filename = os.path.basename(path)
+            input_field = QLineEdit()
+            input_field.setValidator(validator)
+            input_field.setPlaceholderText("Enter cost")
+            file_form.addRow(QLabel(filename), input_field)
+            fee_inputs[filename] = input_field
+
+    layout.addLayout(file_form)
+
+    # Bulk assign
+    layout.addWidget(QLabel("Bulk Assign to All:"))
+    bulk_input = QLineEdit()
+    bulk_input.setValidator(validator)
+    bulk_input.setPlaceholderText("Enter fee to apply to all")
+    layout.addWidget(bulk_input)
+
+    def assign_all():
+        value = bulk_input.text()
+        if not value:
+            return
+        for field in fee_inputs.values():
+            field.setText(value)
+
+    def reset_all():
+        bulk_input.clear()
+        for field in fee_inputs.values():
+            field.clear()
+        state["fee_schedule"].clear()
+
+    assign_all_btn = QPushButton("Assign All")
+    assign_all_btn.clicked.connect(assign_all)
+    layout.addWidget(assign_all_btn)
+
+    reset_all_btn = QPushButton("Reset All")
+    reset_all_btn.clicked.connect(reset_all)
+    layout.addWidget(reset_all_btn)
+
+    # Navigation
+    nav_row = QHBoxLayout()
+    
+    back_btn = QPushButton("Back")
+    back_btn.clicked.connect(lambda: stack.setCurrentIndex(2))
+    nav_row.addWidget(back_btn)
+
+    def save_and_continue():
+        for path in csv_paths:
+            filename = os.path.basename(path)
+            text = fee_inputs[filename].text()
+            if text.isdigit():
+                state["fee_schedule"][filename] = int(text)
+        print("Fee schedule saved to state:", state["fee_schedule"])
+        stack.setCurrentIndex(4)  # Placeholder for now
+
+    next_btn = QPushButton("Next")
+    next_btn.clicked.connect(save_and_continue)
+    nav_row.addWidget(next_btn)
+
+    layout.addLayout(nav_row)
+
+    return screen
+
+
 
 # ---------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------
 
 def create_program_flow_tab(state: Dict) -> QStackedWidget:
-    """Returns a QStackedWidget containing the three program steps."""
     stack = QStackedWidget()
-    stack.addWidget(create_welcome_screen(stack, state))
-    stack.addWidget(create_session_creation_screen(stack, state))
-    stack.addWidget(create_assign_status_screen(stack, state))
-    stack.setCurrentIndex(0)
+    state["stack"] = stack  # 🔁 Store for future screen swaps
+
+    stack.addWidget(create_welcome_screen(stack, state))         # 0
+    stack.addWidget(create_session_creation_screen(stack, state)) # 1
+    stack.addWidget(create_assign_status_screen(stack, state))    # 2
+
+    placeholder = QWidget()  # Placeholder for lazy-loaded fee screen
+    stack.addWidget(placeholder)  # 3
     return stack
+
 
 
 from PyQt6.QtWidgets import (
