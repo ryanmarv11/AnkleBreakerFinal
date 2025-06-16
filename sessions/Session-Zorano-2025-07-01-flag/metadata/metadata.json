@@ -1,0 +1,10 @@
+{
+    "club": "Zorano",
+    "date": "2025-07-01",
+    "session_name": "Session-Zorano-2025-07-01-flag",
+    "paid": false,
+    "flagged": true,
+    "flagged_files": [
+        "export_attendee (30)-flag.csv"
+    ]
+}
