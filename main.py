@@ -26,6 +26,8 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QLineEdit,
     QButtonGroup,
+    QTableWidget,
+    QTableWidgetItem,
 )
 
 # Ensure metadata.json exists in the current directory
@@ -401,6 +403,8 @@ def create_assign_status_screen(stack, state) -> QWidget:
                     except Exception as e:
                         print(f"Error reading {path}: {e}")
 
+    state["status_counts"] = {}  # initialize dictionary
+
     def update_other_display():
         content = ""
         for fname, df in zip(session_csvs, dataframes):
@@ -410,6 +414,13 @@ def create_assign_status_screen(stack, state) -> QWidget:
                 for name in others:
                     content += f"  {name}\n"
         other_display.setText(content.strip())
+
+    def update_status_counts():
+        counts_per_file = {}
+        for fname, df in zip(session_csvs, dataframes):
+            counts = df["current_status"].value_counts().to_dict()
+            counts_per_file[fname] = counts
+        state["status_counts"] = counts_per_file
 
     def update_person_buttons(df_index):
         while scroll_layout.count():
@@ -440,6 +451,7 @@ def create_assign_status_screen(stack, state) -> QWidget:
                     def handler():
                         df.at[row_idx, "current_status"] = status
                         update_other_display()
+                        update_status_counts()
                     return handler
 
                 btn.clicked.connect(make_click_handler())
@@ -452,26 +464,23 @@ def create_assign_status_screen(stack, state) -> QWidget:
             wrapper.setFrameShape(QFrame.Shape.Box)
             scroll_layout.addWidget(wrapper)
 
-    update_other_display()
+        update_status_counts()
 
+    update_other_display()
     file_dropdown.addItems(session_csvs)
     file_dropdown.currentIndexChanged.connect(update_person_buttons)
 
     if dataframes:
         update_person_buttons(0)
 
-
     def go_to_fee_schedule():
-        # Replace the placeholder with actual screen
         fee_screen = create_fee_schedule_screen(stack, state)
-        stack.removeWidget(stack.widget(3))  # Remove placeholder
-        stack.insertWidget(3, fee_screen)    # Insert real widget at index 3
+        stack.removeWidget(stack.widget(3))
+        stack.insertWidget(3, fee_screen)
         stack.setCurrentIndex(3)
+
     next_btn = QPushButton("Next")
     next_btn.clicked.connect(go_to_fee_schedule)
-
-
-
     left_layout.addWidget(next_btn)
 
     back_btn = QPushButton("Back")
@@ -590,7 +599,12 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
             if text.isdigit():
                 state["fee_schedule"][filename] = int(text)
         print("Fee schedule saved to state:", state["fee_schedule"])
-        stack.setCurrentIndex(4)  # Placeholder for now
+    
+        # Replace placeholder at index 4
+        summary_screen = create_payment_summary_screen(stack, state)
+        stack.removeWidget(stack.widget(4))
+        stack.insertWidget(4, summary_screen)
+        stack.setCurrentIndex(4)
 
     next_btn = QPushButton("Next")
     next_btn.clicked.connect(save_and_continue)
@@ -599,6 +613,14 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
     layout.addLayout(nav_row)
 
     return screen
+
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QLabel, QPushButton,
+    QTableWidget, QTableWidgetItem, QHBoxLayout, QHeaderView
+)
+from PyQt6.QtCore import Qt
+import os
+
 
 
 
@@ -610,12 +632,12 @@ def create_program_flow_tab(state: Dict) -> QStackedWidget:
     stack = QStackedWidget()
     state["stack"] = stack  # 🔁 Store for future screen swaps
 
-    stack.addWidget(create_welcome_screen(stack, state))         # 0
+    stack.addWidget(create_welcome_screen(stack, state))          # 0
     stack.addWidget(create_session_creation_screen(stack, state)) # 1
     stack.addWidget(create_assign_status_screen(stack, state))    # 2
+    stack.addWidget(QWidget())  # Placeholder for fee screen       # 3
+    stack.addWidget(QWidget())  # Placeholder for payment summary  # 4
 
-    placeholder = QWidget()  # Placeholder for lazy-loaded fee screen
-    stack.addWidget(placeholder)  # 3
     return stack
 
 
@@ -675,15 +697,200 @@ def create_flagged_sessions_tab(state: Dict) -> QWidget:
 
     return scr
 
+def create_payment_summary_screen(stack, state) -> QWidget:
+    from PyQt6.QtWidgets import (
+        QWidget, QVBoxLayout, QLabel, QPushButton,
+        QTableWidget, QTableWidgetItem, QHBoxLayout, QHeaderView
+    )
+
+    screen = QWidget()
+    layout = QVBoxLayout(screen)
+
+    header = QLabel("Payment Summary (Index 4, Step 5)")
+    header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    layout.addWidget(header)
+
+    # ------------------------------
+    # Table 1: Status Count Summary
+    # ------------------------------
+    statuses = ["regular", "manual", "comped", "refund", "other"]
+    status_table = QTableWidget()
+    layout.addWidget(status_table)
+
+    status_counts = state.get("status_counts", {})
+    filenames = list(status_counts.keys())
+
+    status_table.setRowCount(len(filenames) + 1)
+    status_table.setColumnCount(len(statuses))
+    status_table.setHorizontalHeaderLabels([s.capitalize() for s in statuses])
+    status_table.setVerticalHeaderLabels(filenames + ["Total"])
+
+    totals = dict.fromkeys(statuses, 0)
+
+    for row_idx, fname in enumerate(filenames):
+        counts = status_counts.get(fname, {})
+        for col_idx, status in enumerate(statuses):
+            count = int(counts.get(status, 0))
+            status_table.setItem(row_idx, col_idx, QTableWidgetItem(str(count)))
+            totals[status] += count
+
+    for col_idx, status in enumerate(statuses):
+        status_table.setItem(len(filenames), col_idx, QTableWidgetItem(str(totals[status])))
+
+    status_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+    # ------------------------------
+    # Table 2: Financial Breakdown
+    # ------------------------------
+    layout.addWidget(QLabel("Financial Summary"))
+
+    columns = ["Gross", "TrackitHub", "PayPal", "Zorano"]
+    financial_table = QTableWidget()
+    financial_table.setColumnCount(len(columns))
+    financial_table.setRowCount(len(filenames) + 1)
+    financial_table.setHorizontalHeaderLabels(columns)
+    financial_table.setVerticalHeaderLabels(filenames + ["Total"])
+    layout.addWidget(financial_table)
+
+    fee_schedule = state.get("fee_schedule", {})
+    totals = dict.fromkeys(columns, 0.0)
+
+    for row_idx, fname in enumerate(filenames):
+        price = fee_schedule.get(fname, 0)
+        price=10
+        counts = status_counts.get(fname, {})
+
+        regular = counts.get("regular", 0)
+        manual = counts.get("manual", 0)
+        refund = counts.get("refund", 0)
+
+        # Explicit Calculations
+        print(price)
+        print(counts)
+        gross = regular * price
+        trackithub = (regular + manual) * price * 0.10
+
+        paypal = 0.0
+        paypal_count = regular + refund
+        for _ in range(paypal_count):
+            if price <= 10:
+                paypal += price * 0.05 + 0.05
+            else:
+                paypal += price * 0.0349 + 0.49
+
+        zorano = gross - trackithub - paypal
+
+        row_values = [gross, trackithub, paypal, zorano]
+        for col_idx, value in enumerate(row_values):
+            financial_table.setItem(row_idx, col_idx, QTableWidgetItem(f"${value:.2f}"))
+            totals[columns[col_idx]] += value
+
+    for col_idx, col_name in enumerate(columns):
+        financial_table.setItem(len(filenames), col_idx, QTableWidgetItem(f"${totals[col_name]:.2f}"))
+
+    financial_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+    # ------------------------------
+    # Navigation
+    # ------------------------------
+    nav_row = QHBoxLayout()
+    back_btn = QPushButton("Back")
+    back_btn.clicked.connect(lambda: stack.setCurrentIndex(3))
+    nav_row.addWidget(back_btn)
+
+    next_btn = QPushButton("Next")
+    next_btn.clicked.connect(lambda: stack.setCurrentIndex(5))
+    nav_row.addWidget(next_btn)
+
+    layout.addLayout(nav_row)
+
+    return screen
 
 
 def create_session_crud_tab(state: Dict) -> QWidget:
+    from PyQt6.QtWidgets import (
+        QWidget, QVBoxLayout, QLabel, QComboBox,
+        QPushButton, QMessageBox, QHBoxLayout
+    )
+    import json
+    import os
+
     scr = QWidget()
-    lay = QVBoxLayout(scr)
-    lbl = QLabel("This tab was *also* intentionally left blank.")
-    lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    lay.addWidget(lbl)
+    layout = QVBoxLayout(scr)
+
+    header = QLabel("Session Admin: Mark Sessions as Paid/Unpaid")
+    header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    layout.addWidget(header)
+
+    session_dropdown = QComboBox()
+    layout.addWidget(session_dropdown)
+
+    status_label = QLabel("Select a session to view or update its paid status.")
+    layout.addWidget(status_label)
+
+    sessions_path = os.path.join(os.getcwd(), "sessions")
+
+    def populate_sessions():
+        session_dropdown.clear()
+        if os.path.exists(sessions_path):
+            folders = sorted(
+                [f for f in os.listdir(sessions_path)
+                 if os.path.isdir(os.path.join(sessions_path, f))]
+            )
+            session_dropdown.addItems(folders)
+
+    def get_metadata_path(session_name: str):
+        return os.path.join(sessions_path, session_name, "metadata", "metadata.json")
+
+    def update_status_label():
+        session_name = session_dropdown.currentText()
+        metadata_path = get_metadata_path(session_name)
+        if not os.path.exists(metadata_path):
+            status_label.setText("No metadata found for selected session.")
+            return
+        try:
+            with open(metadata_path, "r") as f:
+                metadata = json.load(f)
+            paid_status = metadata.get("paid", False)
+            status_label.setText(f"Current status: {'✅ Paid' if paid_status else '❌ Unpaid'}")
+        except Exception as e:
+            status_label.setText(f"Error reading metadata: {e}")
+
+    def set_paid_status(is_paid: bool):
+        session_name = session_dropdown.currentText()
+        metadata_path = get_metadata_path(session_name)
+        if not os.path.exists(metadata_path):
+            QMessageBox.warning(scr, "Error", "Metadata file not found.")
+            return
+        try:
+            with open(metadata_path, "r") as f:
+                metadata = json.load(f)
+            metadata["paid"] = is_paid
+            with open(metadata_path, "w") as f:
+                json.dump(metadata, f, indent=4)
+            update_status_label()
+        except Exception as e:
+            QMessageBox.critical(scr, "Error", f"Failed to update metadata: {e}")
+
+    session_dropdown.currentIndexChanged.connect(update_status_label)
+
+    btn_row = QHBoxLayout()
+    paid_btn = QPushButton("Mark as Paid")
+    unpaid_btn = QPushButton("Mark as Unpaid")
+
+    paid_btn.clicked.connect(lambda: set_paid_status(True))
+    unpaid_btn.clicked.connect(lambda: set_paid_status(False))
+
+    btn_row.addWidget(paid_btn)
+    btn_row.addWidget(unpaid_btn)
+    layout.addLayout(btn_row)
+
+    populate_sessions()
+    if session_dropdown.count() > 0:
+        update_status_label()
+
     return scr
+
 
 
 # ---------------------------------------------------------------------
