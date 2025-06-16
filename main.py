@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QDateEdit,
     QComboBox,
     QLineEdit,
+    QButtonGroup,
 )
 
 # Ensure metadata.json exists in the current directory
@@ -426,22 +427,23 @@ def create_assign_status_screen(stack, state) -> QWidget:
             button_row = QHBoxLayout()
             statuses = ["regular", "manual", "comped", "refund", "other"]
 
+            button_group = QButtonGroup(screen)
+            button_group.setExclusive(True)
+
             for status in statuses:
                 btn = QPushButton(status.capitalize())
                 btn.setCheckable(True)
-                btn.setChecked(row["current_status"] == status)
+                if row["current_status"] == status:
+                    btn.setChecked(True)
 
                 def make_click_handler(status=status, row_idx=idx, df=df):
                     def handler():
                         df.at[row_idx, "current_status"] = status
-                        for i in range(button_row.count()):
-                            b = button_row.itemAt(i).widget()
-                            if isinstance(b, QPushButton):
-                                b.setChecked(b.text().lower() == status)
                         update_other_display()
                     return handler
 
                 btn.clicked.connect(make_click_handler())
+                button_group.addButton(btn)
                 button_row.addWidget(btn)
 
             person_box.addLayout(button_row)
@@ -450,7 +452,7 @@ def create_assign_status_screen(stack, state) -> QWidget:
             wrapper.setFrameShape(QFrame.Shape.Box)
             scroll_layout.addWidget(wrapper)
 
-        update_other_display()
+    update_other_display()
 
     file_dropdown.addItems(session_csvs)
     file_dropdown.currentIndexChanged.connect(update_person_buttons)
