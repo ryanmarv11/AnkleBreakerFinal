@@ -331,19 +331,146 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
     return screen
 
 
-def create_assign_status_screen(stack: QStackedWidget, state) -> QWidget:
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox,
+    QHBoxLayout, QScrollArea, QFrame
+)
+from PyQt6.QtCore import Qt
+
+
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox,
+    QHBoxLayout, QScrollArea, QFrame, QTextEdit
+)
+from PyQt6.QtCore import Qt
+import os
+import pandas as pd
+
+def create_assign_status_screen(stack, state) -> QWidget:
     screen = QWidget()
-    layout = QVBoxLayout(screen)
+    main_layout = QHBoxLayout(screen)
+
+    # LEFT SIDE
+    left_layout = QVBoxLayout()
     lbl = QLabel("Status Assignment (Index 2, Step 3)")
     lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    layout.addWidget(lbl)
+    left_layout.addWidget(lbl)
 
-    next_btn = QPushButton("Next")  # placeholder
-    layout.addWidget(next_btn)
+    file_dropdown = QComboBox()
+    left_layout.addWidget(file_dropdown)
+
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll_content = QWidget()
+    scroll_layout = QVBoxLayout(scroll_content)
+    scroll.setWidget(scroll_content)
+    left_layout.addWidget(scroll)
+
+    # RIGHT SIDE - Other status display
+    right_layout = QVBoxLayout()
+    other_display = QTextEdit()
+    other_display.setReadOnly(True)
+    right_layout.addWidget(QLabel("People with status 'Other' (by file):"))
+    right_layout.addWidget(other_display)
+
+    # Detect most recent session folder
+    sessions_dir = os.path.join(os.getcwd(), "sessions")
+    latest_session = None
+    if os.path.exists(sessions_dir):
+        folders = [
+            os.path.join(sessions_dir, f)
+            for f in os.listdir(sessions_dir)
+            if os.path.isdir(os.path.join(sessions_dir, f))
+        ]
+        if folders:
+            latest_session = max(folders, key=os.path.getctime)
+
+    session_csvs = []
+    dataframes = []
+    if latest_session:
+        csv_dir = os.path.join(latest_session, "csv")
+        if os.path.exists(csv_dir):
+            for fname in os.listdir(csv_dir):
+                if fname.endswith(".csv"):
+                    path = os.path.join(csv_dir, fname)
+                    try:
+                        df = pd.read_csv(path)
+                        if "default_status" in df.columns:
+                            if "current_status" not in df.columns:
+                                df["current_status"] = df["default_status"]
+                            dataframes.append(df)
+                            session_csvs.append(fname)
+                    except Exception as e:
+                        print(f"Error reading {path}: {e}")
+
+    def update_other_display():
+        content = ""
+        for fname, df in zip(session_csvs, dataframes):
+            others = df[df["current_status"] == "other"]["Name"].tolist()
+            if others:
+                content += f"{fname}:\n"
+                for name in others:
+                    content += f"  {name}\n"
+        other_display.setText(content.strip())
+
+    def update_person_buttons(df_index):
+        while scroll_layout.count():
+            child = scroll_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+        df = dataframes[df_index]
+
+        for idx, row in df.iterrows():
+            person_box = QVBoxLayout()
+            person_label = QLabel(f"{row['Name']} — Default: {row['default_status']}")
+            person_box.addWidget(person_label)
+
+            button_row = QHBoxLayout()
+            statuses = ["regular", "manual", "comped", "refund", "other"]
+
+            for status in statuses:
+                btn = QPushButton(status.capitalize())
+                btn.setCheckable(True)
+                btn.setChecked(row["current_status"] == status)
+
+                def make_click_handler(status=status, row_idx=idx, df=df):
+                    def handler():
+                        df.at[row_idx, "current_status"] = status
+                        for i in range(button_row.count()):
+                            b = button_row.itemAt(i).widget()
+                            if isinstance(b, QPushButton):
+                                b.setChecked(b.text().lower() == status)
+                        update_other_display()
+                    return handler
+
+                btn.clicked.connect(make_click_handler())
+                button_row.addWidget(btn)
+
+            person_box.addLayout(button_row)
+            wrapper = QFrame()
+            wrapper.setLayout(person_box)
+            wrapper.setFrameShape(QFrame.Shape.Box)
+            scroll_layout.addWidget(wrapper)
+
+        update_other_display()
+
+    file_dropdown.addItems(session_csvs)
+    file_dropdown.currentIndexChanged.connect(update_person_buttons)
+
+    if dataframes:
+        update_person_buttons(0)
+
+    next_btn = QPushButton("Next")
+    left_layout.addWidget(next_btn)
 
     back_btn = QPushButton("Back")
     back_btn.clicked.connect(lambda: stack.setCurrentIndex(1))
-    layout.addWidget(back_btn)
+    left_layout.addWidget(back_btn)
+
+    main_layout.addLayout(left_layout, stretch=3)
+    main_layout.addLayout(right_layout, stretch=1)
+
     return screen
 
 
