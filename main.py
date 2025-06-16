@@ -4,31 +4,41 @@ Fixed so that the *Program* tab is a proper `QStackedWidget` inside the
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
-import json
 from typing import Dict, List
 
 import pandas as pd
 
-from PyQt6.QtCore import Qt, QDate
+from PyQt6.QtCore import QDate, Qt
+from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
-    QLabel,
-    QPushButton,
     QStackedWidget,
     QTabWidget,
+    QWidget,
+    QLabel,
+    QPushButton,
     QVBoxLayout,
     QHBoxLayout,
-    QWidget,
+    QButtonGroup,
     QDateEdit,
     QComboBox,
     QLineEdit,
-    QButtonGroup,
+    QTextEdit,
+    QFormLayout,
+    QMessageBox,
+    QScrollArea,
+    QFrame,
+    QTreeWidget,
+    QTreeWidgetItem,
     QTableWidget,
     QTableWidgetItem,
+    QHeaderView,
 )
+
 
 # Ensure metadata.json exists in the current directory
 ROOT_METADATA_PATH = os.path.join(os.getcwd(), "metadata.json")
@@ -255,15 +265,25 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
 
             # Step 3: Write files with duplicate protection
             written_filenames = set()
+            final_csv_paths = []                               # NEW ★
+
             for df, desired_name in file_output:
                 name_base = desired_name.rsplit(".csv", 1)[0]
                 actual_filename = desired_name
                 suffix = 2
-                while actual_filename in written_filenames or os.path.exists(os.path.join(session_path, "csv", actual_filename)):
+                while (actual_filename in written_filenames or
+                    os.path.exists(os.path.join(session_path, "csv", actual_filename))):
                     actual_filename = f"{name_base}-v{suffix}.csv"
                     suffix += 1
+
                 written_filenames.add(actual_filename)
-                df.to_csv(os.path.join(session_path, "csv", actual_filename), index=False)
+                csv_full_path = os.path.join(session_path, "csv", actual_filename)
+                df.to_csv(csv_full_path, index=False)
+
+                final_csv_paths.append(csv_full_path)         # NEW ★
+
+            # 👉 Store only the *new* paths for downstream screens
+            state["csv_paths"] = final_csv_paths              # NEW ★
 
             # Step 4: Write metadata
             metadata = {
@@ -331,20 +351,6 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
     return screen
 
 
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox,
-    QHBoxLayout, QScrollArea, QFrame
-)
-from PyQt6.QtCore import Qt
-
-
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox,
-    QHBoxLayout, QScrollArea, QFrame, QTextEdit
-)
-from PyQt6.QtCore import Qt
-import os
-import pandas as pd
 
 def create_assign_status_screen(stack, state) -> QWidget:
     screen = QWidget()
@@ -492,72 +498,40 @@ def create_assign_status_screen(stack, state) -> QWidget:
 
     return screen
 
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QPushButton, QLineEdit,
-    QHBoxLayout, QFormLayout
-)
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIntValidator
 
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QPushButton, QLineEdit,
-    QHBoxLayout, QFormLayout
-)
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIntValidator
-import os
 
 def create_fee_schedule_screen(stack, state) -> QWidget:
+    """Index 3: Collect per-file fees after files have been renamed (-flag, -vN, etc.)."""
     screen = QWidget()
     layout = QVBoxLayout(screen)
-    def event(e):
-        if e.type() == e.Type.Show:
-            populate_fee_inputs()
-        return QWidget.event(screen, e)
-
-    screen.event = event
 
     layout.addWidget(QLabel("Fee Schedule (Index 3, Step 4)"))
-    
-    fee_inputs = {}
-    state["fee_schedule"] = {}  # Reset/init fee schedule in state
+
+    fee_inputs: Dict[str, QLineEdit] = {}
+    state["fee_schedule"] = {}          # reset each time we land here
 
     validator = QIntValidator()
     validator.setBottom(1)
-    def populate_fee_inputs():
-        # Only populate if not already done
-        if fee_inputs or not state.get("csv_paths"):
-            return
 
-        for path in state["csv_paths"]:
-            filename = os.path.basename(path)
-            input_field = QLineEdit()
-            input_field.setValidator(validator)
-            input_field.setPlaceholderText("Enter cost")
-            file_form.addRow(QLabel(filename), input_field)
-            fee_inputs[filename] = input_field
-
-
-    # Debug: Show csv paths available
+    # Use the *final* CSV paths saved by the session-creation screen
     csv_paths = state.get("csv_paths", [])
-    print("Fee Schedule Screen: csv_paths =", csv_paths)
+    file_basenames = [os.path.basename(p) for p in csv_paths]
 
-    file_form = QFormLayout() 
-
-    if not csv_paths:
-        layout.addWidget(QLabel("⚠️ No CSV files found in state."))
+    # ------------ per-file fee inputs ------------
+    file_form = QFormLayout()
+    if not file_basenames:
+        layout.addWidget(QLabel("⚠️ No CSV files found for this session."))
     else:
-        for path in csv_paths:
-            filename = os.path.basename(path)
-            input_field = QLineEdit()
-            input_field.setValidator(validator)
-            input_field.setPlaceholderText("Enter cost")
-            file_form.addRow(QLabel(filename), input_field)
-            fee_inputs[filename] = input_field
+        for fname in file_basenames:
+            inp = QLineEdit()
+            inp.setValidator(validator)
+            inp.setPlaceholderText("Enter cost")
+            file_form.addRow(QLabel(fname), inp)
+            fee_inputs[fname] = inp
 
     layout.addLayout(file_form)
 
-    # Bulk assign
+    # ------------ bulk helpers ------------
     layout.addWidget(QLabel("Bulk Assign to All:"))
     bulk_input = QLineEdit()
     bulk_input.setValidator(validator)
@@ -565,11 +539,10 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
     layout.addWidget(bulk_input)
 
     def assign_all():
-        value = bulk_input.text()
-        if not value:
-            return
-        for field in fee_inputs.values():
-            field.setText(value)
+        val = bulk_input.text()
+        if val:
+            for field in fee_inputs.values():
+                field.setText(val)
 
     def reset_all():
         bulk_input.clear()
@@ -585,22 +558,21 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
     reset_all_btn.clicked.connect(reset_all)
     layout.addWidget(reset_all_btn)
 
-    # Navigation
+    # ------------ navigation ------------
     nav_row = QHBoxLayout()
-    
+
     back_btn = QPushButton("Back")
     back_btn.clicked.connect(lambda: stack.setCurrentIndex(2))
     nav_row.addWidget(back_btn)
 
     def save_and_continue():
-        for path in csv_paths:
-            filename = os.path.basename(path)
-            text = fee_inputs[filename].text()
+        # Persist the fees keyed by *basename* (matches summary screen)
+        for fname in file_basenames:
+            text = fee_inputs[fname].text()
             if text.isdigit():
-                state["fee_schedule"][filename] = int(text)
-        print("Fee schedule saved to state:", state["fee_schedule"])
-    
-        # Replace placeholder at index 4
+                state["fee_schedule"][fname] = int(text)
+
+        # Rebuild the summary screen with fresh data
         summary_screen = create_payment_summary_screen(stack, state)
         stack.removeWidget(stack.widget(4))
         stack.insertWidget(4, summary_screen)
@@ -614,12 +586,7 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
 
     return screen
 
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QPushButton,
-    QTableWidget, QTableWidgetItem, QHBoxLayout, QHeaderView
-)
-from PyQt6.QtCore import Qt
-import os
+
 
 
 
@@ -642,11 +609,6 @@ def create_program_flow_tab(state: Dict) -> QStackedWidget:
 
 
 
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QPushButton,
-    QTreeWidget, QTreeWidgetItem, QHeaderView
-)
-from PyQt6.QtCore import Qt
 
 
 def create_flagged_sessions_tab(state: Dict) -> QWidget:
@@ -698,10 +660,7 @@ def create_flagged_sessions_tab(state: Dict) -> QWidget:
     return scr
 
 def create_payment_summary_screen(stack, state) -> QWidget:
-    from PyQt6.QtWidgets import (
-        QWidget, QVBoxLayout, QLabel, QPushButton,
-        QTableWidget, QTableWidgetItem, QHBoxLayout, QHeaderView
-    )
+
 
     screen = QWidget()
     layout = QVBoxLayout(screen)
@@ -731,7 +690,10 @@ def create_payment_summary_screen(stack, state) -> QWidget:
         counts = status_counts.get(fname, {})
         for col_idx, status in enumerate(statuses):
             count = int(counts.get(status, 0))
-            status_table.setItem(row_idx, col_idx, QTableWidgetItem(str(count)))
+            item = QTableWidgetItem(str(count))
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            status_table.setItem(row_idx, col_idx, item)
+
             totals[status] += count
 
     for col_idx, status in enumerate(statuses):
@@ -754,10 +716,14 @@ def create_payment_summary_screen(stack, state) -> QWidget:
 
     fee_schedule = state.get("fee_schedule", {})
     totals = dict.fromkeys(columns, 0.0)
-
+    print(fee_schedule)
     for row_idx, fname in enumerate(filenames):
+        print(row_idx)
+        print(filenames)
+        print(fee_schedule.get(fname))
         price = fee_schedule.get(fname, 0)
-        price=10
+        
+
         counts = status_counts.get(fname, {})
 
         regular = counts.get("regular", 0)
@@ -782,7 +748,10 @@ def create_payment_summary_screen(stack, state) -> QWidget:
 
         row_values = [gross, trackithub, paypal, zorano]
         for col_idx, value in enumerate(row_values):
-            financial_table.setItem(row_idx, col_idx, QTableWidgetItem(f"${value:.2f}"))
+            item = QTableWidgetItem(f"${value:.2f}")
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            financial_table.setItem(row_idx, col_idx, item)
+
             totals[columns[col_idx]] += value
 
     for col_idx, col_name in enumerate(columns):
@@ -808,12 +777,6 @@ def create_payment_summary_screen(stack, state) -> QWidget:
 
 
 def create_session_crud_tab(state: Dict) -> QWidget:
-    from PyQt6.QtWidgets import (
-        QWidget, QVBoxLayout, QLabel, QComboBox,
-        QPushButton, QMessageBox, QHBoxLayout
-    )
-    import json
-    import os
 
     scr = QWidget()
     layout = QVBoxLayout(scr)
