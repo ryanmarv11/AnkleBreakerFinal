@@ -35,9 +35,17 @@ from PyQt6.QtWidgets import (
     QHeaderView,
 )
 
+from pathlib import Path
+
+BASE_DIR      = Path.home() / "AnkleBreakerData"
+BASE_DIR.mkdir(parents=True, exist_ok=True)
+
+ROOT_METADATA_PATH = BASE_DIR / "metadata.json"
+SESSIONS_DIR       = BASE_DIR / "sessions"
+SESSIONS_DIR.mkdir(exist_ok=True)               # ensure it exists
 
 # Ensure metadata.json exists in the current directory
-ROOT_METADATA_PATH = os.path.join(os.getcwd(), "metadata.json")
+
 DEFAULT_CLUBS = ["Zorano"]
 
 def load_global_metadata() -> dict:
@@ -61,7 +69,7 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
     screen = QWidget()
     layout = QVBoxLayout(screen)
 
-    label = QLabel("Welcome to the Billing Assistant!")
+    label = QLabel("Welcome to the AnkleBreaker")
     label.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(label)
 
@@ -155,21 +163,23 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
 
     # LEFT SIDE
     left_layout = QVBoxLayout()
-    lbl = QLabel("Session Creation (Index 1, Step 2)")
+    lbl = QLabel("Session Creation")
     lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
     left_layout.addWidget(lbl)
 
+    # --- Date widget -------------------------------------------------
     date_wid = QDateEdit()
     date_wid.setCalendarPopup(True)
-    date_wid.setDisplayFormat(" ")  # Hide default format
-    date_wid.clear()  # Clears visible value
+    date_wid.setDisplayFormat("MMMM d, yyyy")          # show pretty date format
+    date_wid.setDate(QDate.currentDate())              # default = today
     left_layout.addWidget(date_wid)
 
-    date_label = QLabel("No date selected yet!")
+    # Selected-date label
+    date_label = QLabel(f"Selected date: {date_wid.date().toString('MMMM d, yyyy')}")
     left_layout.addWidget(date_label)
 
     # Status labels
-    status_date = QLabel("Date selected: ❌")
+    status_date = QLabel("Date selected: ✅")           # already true
     status_club = QLabel("Club selected: ❌")
     status_ready = QLabel("Ready to create session: ❌")
     left_layout.addWidget(status_date)
@@ -196,114 +206,123 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
     back_btn.clicked.connect(lambda: stack.setCurrentIndex(0))
     left_layout.addWidget(back_btn)
 
-    # Track date selection state
-    date_selected = False
+    # Track date selection state – starts True because we pre-picked today
+    date_selected = True
 
-    # -- Refresh logic --
+    # -- Refresh logic ------------------------------------------------
     def update_status():
-        # Use outer `date_selected` flag
         club_selected = club_selector.currentText() != "None"
-
         status_date.setText(f"Date selected: {'✅' if date_selected else '❌'}")
         status_club.setText(f"Club selected: {'✅' if club_selected else '❌'}")
         ready = date_selected and club_selected
         status_ready.setText(f"Ready to create session: {'✅' if ready else '❌'}")
         create_btn.setEnabled(ready)
 
-    def on_date_changed(date):
+    # Fires on date *change*
+    def on_date_changed(new_date):
         nonlocal date_selected
-        if not date_selected:
-            # Only do this once when user selects the date
-            date_wid.setDisplayFormat("MMMM d, yyyy")
         date_selected = True
-        date_label.setText("Selected date: " + date.toString("MMMM d, yyyy"))
+        date_label.setText("Selected date: " + new_date.toString("MMMM d, yyyy"))
         update_status()
 
+    # Fires even when the user clicks the SAME date again
+    date_wid.calendarWidget().clicked.connect(on_date_changed)
     date_wid.dateChanged.connect(on_date_changed)
+
     club_selector.currentTextChanged.connect(lambda _: update_status())
     update_status()
 
+    # --------------------- Core “create session” logic ----------------
     def create_session():
-            club_name = club_selector.currentText()
-            date_str = date_wid.date().toString("yyyy-MM-dd")
-            base_session_name = f"Session-{club_name}-{date_str}"
+        club_name = club_selector.currentText()
+        date_str = date_wid.date().toString("yyyy-MM-dd")
+        base_session_name = f"Session-{club_name}-{date_str}"
 
-            flagged = False
-            flagged_files = []
+        flagged = False
+        flagged_files = []
 
-            base_dir = os.getcwd()
-            sessions_path = os.path.join(base_dir, "sessions")
-            os.makedirs(sessions_path, exist_ok=True)
+        sessions_path = SESSIONS_DIR
+        os.makedirs(sessions_path, exist_ok=True)
 
-            if "csv_paths" not in state or "dataframes" not in state:
-                status_ready.setText("Error: No data loaded in state.")
-                return
+        if "csv_paths" not in state or "dataframes" not in state:
+            status_ready.setText("Error: No data loaded in state.")
+            return
 
-            # Step 1: Check for flags
-            file_output = []
-            for path, df in zip(state["csv_paths"], state["dataframes"]):
-                original_filename = os.path.basename(path)
-                filename_out = original_filename
-                if "default_status" in df.columns and (df["default_status"] == "other").any():
-                    flagged = True
-                    filename_out = original_filename.replace(".csv", "-flag.csv")
-                    flagged_files.append(filename_out)
-                file_output.append((df, filename_out))
+        # Step 1: Check for flags
+        file_output = []
+        for path, df in zip(state["csv_paths"], state["dataframes"]):
+            original_filename = os.path.basename(path)
+            filename_out = original_filename
+            if "default_status" in df.columns and (df["default_status"] == "other").any():
+                flagged = True
+                filename_out = original_filename.replace(".csv", "-flag.csv")
+                flagged_files.append(filename_out)
+            file_output.append((df, filename_out))
 
-            # Step 2: Determine unique session name
-            session_folder_base = f"{base_session_name}-flag" if flagged else base_session_name
-            session_name = session_folder_base
+        # Step 2: Determine unique session name
+        session_folder_base = f"{base_session_name}-flag" if flagged else base_session_name
+        session_name = session_folder_base
+        suffix = 2
+        while os.path.exists(os.path.join(sessions_path, session_name)):
+            session_name = f"{session_folder_base}-v{suffix}"
+            suffix += 1
+
+        session_path = os.path.join(sessions_path, session_name)
+        os.makedirs(os.path.join(session_path, "csv"), exist_ok=True)
+        os.makedirs(os.path.join(session_path, "metadata"), exist_ok=True)
+
+        # Step 3: Write files with duplicate protection
+        written_filenames = set()
+        final_csv_paths = []
+
+        for df, desired_name in file_output:
+            name_base = desired_name.rsplit(".csv", 1)[0]
+            actual_filename = desired_name
             suffix = 2
-            while os.path.exists(os.path.join(sessions_path, session_name)):
-                session_name = f"{session_folder_base}-v{suffix}"
+            while (actual_filename in written_filenames or
+                   os.path.exists(os.path.join(session_path, "csv", actual_filename))):
+                actual_filename = f"{name_base}-v{suffix}.csv"
                 suffix += 1
 
-            session_path = os.path.join(sessions_path, session_name)
-            os.makedirs(os.path.join(session_path, "csv"), exist_ok=True)
-            os.makedirs(os.path.join(session_path, "metadata"), exist_ok=True)
+            written_filenames.add(actual_filename)
+            csv_full_path = os.path.join(session_path, "csv", actual_filename)
+            df.to_csv(csv_full_path, index=False)
+            final_csv_paths.append(csv_full_path)
 
-            # Step 3: Write files with duplicate protection
-            written_filenames = set()
-            final_csv_paths = []                               # NEW ★
+        # Step 4: Store updated paths and reload fresh DataFrames
+        state["csv_paths"] = final_csv_paths
+        state["dataframes"] = [pd.read_csv(p) for p in final_csv_paths]
+        state["current_session"] = session_path
 
-            for df, desired_name in file_output:
-                name_base = desired_name.rsplit(".csv", 1)[0]
-                actual_filename = desired_name
-                suffix = 2
-                while (actual_filename in written_filenames or
-                    os.path.exists(os.path.join(session_path, "csv", actual_filename))):
-                    actual_filename = f"{name_base}-v{suffix}.csv"
-                    suffix += 1
+        if "_refresh_crud_banner" in state:
+            state["_refresh_crud_banner"]()      # tell the admin tab the good news
 
-                written_filenames.add(actual_filename)
-                csv_full_path = os.path.join(session_path, "csv", actual_filename)
-                df.to_csv(csv_full_path, index=False)
 
-                final_csv_paths.append(csv_full_path)         # NEW ★
+        # Step 5: Write metadata
+        metadata = {
+            "club": club_name,
+            "date": date_str,
+            "session_name": session_name,
+            "paid": False,
+            "flagged": flagged,
+            "flagged_files": flagged_files,
+        }
 
-            # 👉 Store only the *new* paths for downstream screens
-            state["csv_paths"] = final_csv_paths              # NEW ★
+        metadata_path = os.path.join(session_path, "metadata", "metadata.json")
+        with open(metadata_path, "w") as f:
+            json.dump(metadata, f, indent=4)
 
-            # Step 4: Write metadata
-            metadata = {
-                "club": club_name,
-                "date": date_str,
-                "session_name": session_name,
-                "paid": False,
-                "flagged": flagged,
-                "flagged_files": flagged_files,
-            }
+        status_ready.setText(f"Session created: {session_name}")
 
-            metadata_path = os.path.join(session_path, "metadata", "metadata.json")
-            with open(metadata_path, "w") as f:
-                json.dump(metadata, f, indent=4)
-
-            status_ready.setText(f"Session created: {session_name}")
-
+        # Step 6: 🔄 Rebuild assign status screen so it doesn't use stale data
+        new_assign = create_assign_status_screen(stack, state)
+        stack.removeWidget(stack.widget(2))
+        stack.insertWidget(2, new_assign)
+        stack.setCurrentIndex(2)
 
     create_btn.clicked.connect(create_session)
 
-    # RIGHT SIDE - Club Management
+    # RIGHT SIDE – Club Management ------------------------------------
     right_layout = QVBoxLayout()
 
     club_input = QLineEdit()
@@ -318,13 +337,12 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
     def add_club():
         new_club = club_input.text().strip()
         if not new_club or new_club in clubs:
-            return  # Do nothing if empty or already exists
+            return
         clubs.append(new_club)
         state["global_metadata"]["clubs"].append(new_club)
         save_global_metadata(state["global_metadata"])
         refresh_dropdown()
         club_input.clear()
-
 
     def remove_club():
         club_to_remove = club_input.text().strip()
@@ -334,7 +352,6 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
             save_global_metadata(state["global_metadata"])
             refresh_dropdown()
             club_input.clear()
-
 
     add_button = QPushButton("Add Club")
     add_button.clicked.connect(add_club)
@@ -355,9 +372,9 @@ def create_assign_status_screen(stack, state) -> QWidget:
     screen = QWidget()
     main_layout = QHBoxLayout(screen)
 
-    #Left side, file dropdown and buttons
+    # Left layout
     left_layout = QVBoxLayout()
-    lbl = QLabel("Status Assignment ")
+    lbl = QLabel("Status Assignment")
     lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
     left_layout.addWidget(lbl)
 
@@ -371,46 +388,47 @@ def create_assign_status_screen(stack, state) -> QWidget:
     scroll.setWidget(scroll_content)
     left_layout.addWidget(scroll)
 
-    #Right side, Other status graphic
+    # Right layout (other display)
     right_layout = QVBoxLayout()
     other_display = QTextEdit()
     other_display.setReadOnly(True)
     right_layout.addWidget(QLabel("People with status 'Other' (by file):"))
     right_layout.addWidget(other_display)
 
-    #Find the most recent session folder
-    sessions_dir = os.path.join(os.getcwd(), "sessions")
-    latest_session = None
-    if os.path.exists(sessions_dir):
+    # Get current session folder from state
+    current_session = state.get("current_session")
+    dataframes = []
+    session_csvs = []
+
+    if current_session and os.path.exists(current_session):
+        csv_dir = os.path.join(current_session, "csv")
+    else:
+        # Fallback to latest session if none recorded
         folders = [
-            os.path.join(sessions_dir, f)
-            for f in os.listdir(sessions_dir)
-            if os.path.isdir(os.path.join(sessions_dir, f))
+            os.path.join(SESSIONS_DIR, f)
+            for f in os.listdir(SESSIONS_DIR)
+            if os.path.isdir(os.path.join(SESSIONS_DIR, f))
         ]
-        if folders:
-            latest_session = max(folders, key=os.path.getctime)
+        latest_session = max(folders, key=os.path.getctime, default=None)
+        csv_dir = os.path.join(latest_session, "csv") if latest_session else None
 
-    session_csvs = [os.path.basename(p) for p in state.get("csv_paths", [])]
-    dataframes = state.get("dataframes", [])
+    if csv_dir and os.path.exists(csv_dir):
+        for fname in sorted(os.listdir(csv_dir)):
+            if fname.endswith(".csv"):
+                path = os.path.join(csv_dir, fname)
+                try:
+                    df = pd.read_csv(path)
+                    if "default_status" in df.columns:
+                        if "current_status" not in df.columns:
+                            df["current_status"] = df["default_status"]
+                        dataframes.append(df)
+                        session_csvs.append(fname)
+                except Exception as e:
+                    print(f"Error reading {path}: {e}")
 
-    #sets all current_status to default_status for initialization
-    if latest_session:
-        csv_dir = os.path.join(latest_session, "csv")
-        if os.path.exists(csv_dir):
-            for fname in os.listdir(csv_dir):
-                if fname.endswith(".csv"):
-                    path = os.path.join(csv_dir, fname)
-                    try:
-                        df = pd.read_csv(path)
-                        if "default_status" in df.columns:
-                            if "current_status" not in df.columns:
-                                df["current_status"] = df["default_status"]
-                            dataframes.append(df)
-                            session_csvs.append(fname)
-                    except Exception as e:
-                        print(f"Error reading {path}: {e}")
-
-    state["status_counts"] = {}  
+    state["dataframes"] = dataframes
+    state["csv_paths"] = [os.path.join(csv_dir, f) for f in session_csvs]
+    state["status_counts"] = {}
 
     def update_other_display():
         content = ""
@@ -486,13 +504,9 @@ def create_assign_status_screen(stack, state) -> QWidget:
         stack.insertWidget(3, fee_screen)
         stack.setCurrentIndex(3)
 
-
     next_btn = QPushButton("Next")
     next_btn.clicked.connect(go_to_fee_schedule)
     left_layout.addWidget(next_btn)
-
-    #Removed back button since currently a user cannot create a session in the same instance as another session
-    #Potentially something to do in regards to clearing the state like a reset button
 
     main_layout.addLayout(left_layout, stretch=3)
     main_layout.addLayout(right_layout, stretch=1)
@@ -505,7 +519,7 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
     screen = QWidget()
     layout = QVBoxLayout(screen)
 
-    layout.addWidget(QLabel("Fee Schedule (Index 3, Step 4)"))
+    layout.addWidget(QLabel("Fee Schedule"))
 
     fee_inputs: Dict[str, QLineEdit] = {}
     state["fee_schedule"] = {}          
@@ -617,8 +631,7 @@ def create_flagged_sessions_tab(state: Dict) -> QWidget:
     def refresh_flagged():
         tree.clear()
 
-        base_dir = os.getcwd()
-        sessions_path = os.path.join(base_dir, "sessions")
+        sessions_path = SESSIONS_DIR
 
         if not os.path.exists(sessions_path):
             return
@@ -655,7 +668,7 @@ def create_payment_summary_screen(stack, state) -> QWidget:
     screen = QWidget()
     layout = QVBoxLayout(screen)
 
-    header = QLabel("Payment Summary (Index 4, Step 5)")
+    header = QLabel("Payment Summary")
     header.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(header)
 
@@ -757,18 +770,33 @@ def create_payment_summary_screen(stack, state) -> QWidget:
 
 
 def create_session_crud_tab(state: Dict) -> QWidget:
+    """Session-admin tab: pay/unpay/delete + live ‘current session’ banner."""
     scr = QWidget()
     layout = QVBoxLayout(scr)
 
-    header = QLabel("Session Admin: Mark Sessions as Paid/Unpaid")
+    header = QLabel("Session Admin")
     header.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(header)
 
-    # Date Selector
-    date_selector = QDateEdit()
-    date_selector.setCalendarPopup(True)
+    # -------- banner -------------------------------------------------
+    current_session_lbl = QLabel()
+    layout.addWidget(current_session_lbl)
+
+    def refresh_current_session_label() -> None:
+        path = state.get("current_session")
+        current_session_lbl.setText(
+            f"Current Session: {os.path.basename(path)}"
+            if path else "No session created yet"
+        )
+
+    refresh_current_session_label()               # initial text
+    state["_refresh_crud_banner"] = refresh_current_session_label  # let others poke it
+    # ----------------------------------------------------------------
+
+    # Date selector
+    date_selector = QDateEdit(calendarPopup=True)
     date_selector.setDisplayFormat("yyyy-MM-dd")
-    date_selector.setDate(QDate.currentDate())  # Default to today
+    date_selector.setDate(QDate.currentDate())
     layout.addWidget(QLabel("Select a date:"))
     layout.addWidget(date_selector)
 
@@ -776,107 +804,91 @@ def create_session_crud_tab(state: Dict) -> QWidget:
     session_dropdown = QComboBox()
     layout.addWidget(session_dropdown)
 
-    # Status label
+    # Paid/unpaid status
     status_label = QLabel("Select a session to view or update its paid status.")
     layout.addWidget(status_label)
 
-    sessions_path = os.path.join(os.getcwd(), "sessions")
+    sessions_path = SESSIONS_DIR
 
-    def get_metadata_path(session_name: str):
-        return os.path.join(sessions_path, session_name, "metadata", "metadata.json")
+    def meta_path(sess_name: str) -> str:
+        return os.path.join(sessions_path, sess_name, "metadata", "metadata.json")
 
-    def update_status_label():
-        session_name = session_dropdown.currentText()
-        metadata_path = get_metadata_path(session_name)
-        if not os.path.exists(metadata_path):
+    def update_status_label() -> None:
+        sess = session_dropdown.currentText()
+        mpath = meta_path(sess)
+        if not os.path.exists(mpath):
             status_label.setText("No metadata found for selected session.")
             return
         try:
-            with open(metadata_path, "r") as f:
-                metadata = json.load(f)
-            paid_status = metadata.get("paid", False)
-            status_label.setText(f"Current status: {'✅ Paid' if paid_status else '❌ Unpaid'}")
-        except Exception as e:
-            status_label.setText(f"Error reading metadata: {e}")
+            with open(mpath) as f:
+                paid = json.load(f).get("paid", False)
+            status_label.setText(f"Current status: {'✅ Paid' if paid else '❌ Unpaid'}")
+        except Exception as exc:
+            status_label.setText(f"Error reading metadata: {exc}")
 
-    def set_paid_status(is_paid: bool):
-        session_name = session_dropdown.currentText()
-        metadata_path = get_metadata_path(session_name)
-        if not os.path.exists(metadata_path):
+    def populate_sessions() -> None:
+        session_dropdown.clear()
+        day = date_selector.date().toString("yyyy-MM-dd")
+        if os.path.exists(sessions_path):
+            folders = sorted(
+                f for f in os.listdir(sessions_path)
+                if os.path.isdir(os.path.join(sessions_path, f)) and day in f
+            )
+            session_dropdown.addItems(folders)
+        update_status_label() if session_dropdown.count() else \
+            status_label.setText("No sessions found for this date.")
+
+    # -- paid / unpaid toggle ----------------------------------------
+    def set_paid(paid: bool) -> None:
+        sess = session_dropdown.currentText()
+        mpath = meta_path(sess)
+        if not os.path.exists(mpath):
             QMessageBox.warning(scr, "Error", "Metadata file not found.")
             return
         try:
-            with open(metadata_path, "r") as f:
-                metadata = json.load(f)
-            metadata["paid"] = is_paid
-            with open(metadata_path, "w") as f:
-                json.dump(metadata, f, indent=4)
+            with open(mpath) as f:
+                meta = json.load(f)
+            meta["paid"] = paid
+            with open(mpath, "w") as f:
+                json.dump(meta, f, indent=4)
             update_status_label()
-        except Exception as e:
-            QMessageBox.critical(scr, "Error", f"Failed to update metadata: {e}")
+        except Exception as exc:
+            QMessageBox.critical(scr, "Error", f"Failed to update metadata:\n{exc}")
 
-    # 🔄 Repopulate dropdown based on selected date
-    def populate_sessions():
-        session_dropdown.clear()
-        selected_date = date_selector.date().toString("yyyy-MM-dd")
-        if os.path.exists(sessions_path):
-            folders = sorted([
-                f for f in os.listdir(sessions_path)
-                if os.path.isdir(os.path.join(sessions_path, f)) and selected_date in f
-            ])
-            session_dropdown.addItems(folders)
-        if session_dropdown.count() > 0:
-            update_status_label()
-        else:
-            status_label.setText("No sessions found for this date.")
+    # -- delete with confirmation ------------------------------------
+    def delete_session() -> None:
+        sess = session_dropdown.currentText()
+        if not sess:
+            QMessageBox.warning(scr, "No Session Selected", "Select a session to delete.")
+            return
+        if QMessageBox.question(
+                scr, "Confirm Deletion",
+                f"Delete session '{sess}' permanently?",
+                QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            return
+        try:
+            import shutil
+            shutil.rmtree(os.path.join(sessions_path, sess))
+            QMessageBox.information(scr, "Deleted", f"Session '{sess}' deleted.")
+            populate_sessions()
+        except Exception as exc:
+            QMessageBox.critical(scr, "Error", f"Failed to delete session:\n{exc}")
 
-    # 🔁 Connections
+    # Buttons
+    row = QHBoxLayout()
+    for text, func in [("Mark as Paid", lambda: set_paid(True)),
+                       ("Mark as Unpaid", lambda: set_paid(False)),
+                       ("Delete Session", delete_session)]:
+        btn = QPushButton(text)
+        btn.clicked.connect(func)
+        row.addWidget(btn)
+    layout.addLayout(row)
+
+    # Signal wiring
     date_selector.dateChanged.connect(populate_sessions)
     session_dropdown.currentIndexChanged.connect(update_status_label)
 
-    # Delete session button with confirmation
-    def delete_selected_session():
-        session_name = session_dropdown.currentText()
-        if not session_name:
-            QMessageBox.warning(scr, "No Session Selected", "Please select a session to delete.")
-            return
-
-        confirm = QMessageBox.question(
-            scr,
-            "Confirm Deletion",
-            f"Are you sure you want to permanently delete the session:\n\n  {session_name}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-
-        if confirm == QMessageBox.StandardButton.Yes:
-            session_path = os.path.join(sessions_path, session_name)
-            try:
-                import shutil
-                shutil.rmtree(session_path)
-                QMessageBox.information(scr, "Deleted", f"Session '{session_name}' was deleted.")
-                populate_sessions()
-            except Exception as e:
-                QMessageBox.critical(scr, "Error", f"Failed to delete session:\n{e}")
-
-        # Paid/unpaid/delete buttons
-    btn_row = QHBoxLayout()
-    paid_btn = QPushButton("Mark as Paid")
-    unpaid_btn = QPushButton("Mark as Unpaid")
-    delete_btn = QPushButton("Delete Session")
-
-    paid_btn.clicked.connect(lambda: set_paid_status(True))
-    unpaid_btn.clicked.connect(lambda: set_paid_status(False))
-    delete_btn.clicked.connect(delete_selected_session)
-
-    btn_row.addWidget(paid_btn)
-    btn_row.addWidget(unpaid_btn)
-    btn_row.addWidget(delete_btn)
-    layout.addLayout(btn_row)
-
-
-    # Initial population
-    populate_sessions()
-
+    populate_sessions()  # initial fill
     return scr
 
 
@@ -904,7 +916,7 @@ def create_main_window() -> QTabWidget:
 def main() -> None:
     app = QApplication(sys.argv)
     window = create_main_window()
-    window.setWindowTitle("Billing Assistant")
+    window.setWindowTitle("AnkleBreaker")
     window.resize(600, 450)
     window.show()
     sys.exit(app.exec())
