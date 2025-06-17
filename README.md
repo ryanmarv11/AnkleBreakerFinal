@@ -1,4 +1,4 @@
-# 🦶 AnkleBreaker – Billing Assistant
+# 🦶 AnkleBreaker – 
 
 A desktop billing assistant to help club directors manage event registrations, assign statuses, track fees, and generate summaries—all from an easy-to-use GUI.
 
@@ -18,7 +18,7 @@ No Python installation required. Just click and go.
 
    - Double-click `BillingAssistantSetup.exe`
    - Follow the prompts: `Next` → `Next` → `Finish`
-   - A shortcut called **Billing Assistant** will appear on your desktop.
+   - A shortcut called **AnkleBreaker** will appear on your desktop.
 
 3. **Launch the Program**
 
@@ -50,7 +50,7 @@ If you run into issues:
 
 You can uninstall it like any other program:
 - Go to **Add or Remove Programs**
-- Search for **Billing Assistant**
+- Search for **AnkleBreaker**
 - Click **Uninstall**
 
 ---
