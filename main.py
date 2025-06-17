@@ -769,7 +769,7 @@ def create_payment_summary_screen(stack, state) -> QWidget:
     return screen
 
 
-def create_session_crud_tab(state: Dict) -> QWidget:
+def create_session_admin_tab(state: Dict) -> QWidget:
     """Session-admin tab: pay/unpay/delete + live ‘current session’ banner."""
     scr = QWidget()
     layout = QVBoxLayout(scr)
@@ -882,6 +882,12 @@ def create_session_crud_tab(state: Dict) -> QWidget:
         btn = QPushButton(text)
         btn.clicked.connect(func)
         row.addWidget(btn)
+    refresh_btn = QPushButton("Refresh")
+    def hard_refresh():
+        populate_sessions()
+        refresh_current_session_label()
+    refresh_btn.clicked.connect(hard_refresh)
+    row.addWidget(refresh_btn)      # slap it on the same row
     layout.addLayout(row)
 
     # Signal wiring
@@ -905,7 +911,7 @@ def create_main_window() -> QTabWidget:
 
     tabs.addTab(create_program_flow_tab(state), "Program")
     tabs.addTab(create_flagged_sessions_tab(state), "Flagged")
-    tabs.addTab(create_session_crud_tab(state), "Session Admin")
+    tabs.addTab(create_session_admin_tab(state), "Session Admin")
     return tabs
 
 
