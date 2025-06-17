@@ -12,11 +12,11 @@ No Python installation required. Just click and go.
 
    Head to the [Releases](https://github.com/ryanmarv11/AnkleBreakerFinal/releases) page and grab the latest version:
 
-   👉 **`BillingAssistantSetup.exe`**
+   👉 **`AnkleBreakerSetup.exe`**
 
 2. **Run the Installer**
 
-   - Double-click `BillingAssistantSetup.exe`
+   - Double-click `AnkleBreakerSetup.exe`
    - Follow the prompts: `Next` → `Next` → `Finish`
    - A shortcut called **AnkleBreaker** will appear on your desktop.
 
