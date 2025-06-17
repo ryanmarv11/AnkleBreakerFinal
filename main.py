@@ -1,7 +1,3 @@
-"""Billing‑Assistant GUI – tabbed layout
-Fixed so that the *Program* tab is a proper `QStackedWidget` inside the
-`QTabWidget`, and `main()` just builds the tabs once.
-"""
 from __future__ import annotations
 
 import json
@@ -57,14 +53,15 @@ def save_global_metadata(data: dict):
 
 
 # ---------------------------------------------------------------------
-# Helper screens for the Program flow
+# Screens for Program Flow Tab
 # ---------------------------------------------------------------------
 
+#This is the first screen that the user sees
 def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
     screen = QWidget()
     layout = QVBoxLayout(screen)
 
-    label = QLabel("Welcome to the Billing Assistant! Index 0, Step 1")
+    label = QLabel("Welcome to the Billing Assistant!")
     label.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(label)
 
@@ -74,11 +71,13 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
     select_files_btn = QPushButton("Select CSV Files")
     select_folder_btn = QPushButton("Select Folder")
 
-    # --- Custom default status logic ---
+    #Determines default status based on contents of notes
     def determine_default_status(notes: str) -> str:
         n = str(notes).lower()
         if "comped" in n:
             return "comped"
+        elif "no capacity, and room on the waiting list : register" in n:
+            return "waitlist"
         elif "refund" in n:
             return "refund"
         elif "manually confirmed by" in n:
@@ -88,6 +87,7 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
         else:
             return "other"
 
+    #Loads the paths and dataframes into the state
     def load_paths(paths: List[str]):
         state["csv_paths"] = paths
         dfs, errors = [], []
@@ -106,12 +106,12 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
         state["dataframes"] = dfs
         state["df"] = pd.concat(dfs, ignore_index=True) if dfs else None
 
-
         msg = f"Loaded {len(dfs)} files"
         if errors:
             msg += f" ( {len(errors)} failed )"
         file_label.setText(msg)
 
+    #The user selects csv files individually
     def select_files():
         paths, _ = QFileDialog.getOpenFileNames(
             screen, "Select CSV Files", "", "CSV Files (*.csv);;All Files (*)"
@@ -119,6 +119,7 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
         if paths:
             load_paths(paths)
 
+    #The user selects a folder (that contains only csv files)
     def select_folder():
         folder = QFileDialog.getExistingDirectory(screen, "Select Folder Containing CSV Files", "")
         if folder:
@@ -146,9 +147,7 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
 
     return screen
 
-#add duplicate protection!!!!!!!!!!
-
-
+#This is the second screen that the user sees and after clicking next is the point of no return
 def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
     screen = QWidget()
     main_layout = QHBoxLayout(screen)
@@ -350,15 +349,15 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
 
     return screen
 
-
-
+#This is the third scrren that the user sees and is the first step after a session is created
+#A user cannot backtrack past this screen
 def create_assign_status_screen(stack, state) -> QWidget:
     screen = QWidget()
     main_layout = QHBoxLayout(screen)
 
-    # LEFT SIDE
+    #Left side, file dropdown and buttons
     left_layout = QVBoxLayout()
-    lbl = QLabel("Status Assignment (Index 2, Step 3)")
+    lbl = QLabel("Status Assignment ")
     lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
     left_layout.addWidget(lbl)
 
@@ -372,14 +371,14 @@ def create_assign_status_screen(stack, state) -> QWidget:
     scroll.setWidget(scroll_content)
     left_layout.addWidget(scroll)
 
-    # RIGHT SIDE - Other status display
+    #Right side, Other status graphic
     right_layout = QVBoxLayout()
     other_display = QTextEdit()
     other_display.setReadOnly(True)
     right_layout.addWidget(QLabel("People with status 'Other' (by file):"))
     right_layout.addWidget(other_display)
 
-    # Detect most recent session folder
+    #Find the most recent session folder
     sessions_dir = os.path.join(os.getcwd(), "sessions")
     latest_session = None
     if os.path.exists(sessions_dir):
@@ -391,8 +390,10 @@ def create_assign_status_screen(stack, state) -> QWidget:
         if folders:
             latest_session = max(folders, key=os.path.getctime)
 
-    session_csvs = []
-    dataframes = []
+    session_csvs = [os.path.basename(p) for p in state.get("csv_paths", [])]
+    dataframes = state.get("dataframes", [])
+
+    #sets all current_status to default_status for initialization
     if latest_session:
         csv_dir = os.path.join(latest_session, "csv")
         if os.path.exists(csv_dir):
@@ -409,7 +410,7 @@ def create_assign_status_screen(stack, state) -> QWidget:
                     except Exception as e:
                         print(f"Error reading {path}: {e}")
 
-    state["status_counts"] = {}  # initialize dictionary
+    state["status_counts"] = {}  
 
     def update_other_display():
         content = ""
@@ -442,7 +443,7 @@ def create_assign_status_screen(stack, state) -> QWidget:
             person_box.addWidget(person_label)
 
             button_row = QHBoxLayout()
-            statuses = ["regular", "manual", "comped", "refund", "other"]
+            statuses = ["regular", "manual", "comped", "refund", "waitlist", "other"]
 
             button_group = QButtonGroup(screen)
             button_group.setExclusive(True)
@@ -485,13 +486,13 @@ def create_assign_status_screen(stack, state) -> QWidget:
         stack.insertWidget(3, fee_screen)
         stack.setCurrentIndex(3)
 
+
     next_btn = QPushButton("Next")
     next_btn.clicked.connect(go_to_fee_schedule)
     left_layout.addWidget(next_btn)
 
-    back_btn = QPushButton("Back")
-    back_btn.clicked.connect(lambda: stack.setCurrentIndex(1))
-    left_layout.addWidget(back_btn)
+    #Removed back button since currently a user cannot create a session in the same instance as another session
+    #Potentially something to do in regards to clearing the state like a reset button
 
     main_layout.addLayout(left_layout, stretch=3)
     main_layout.addLayout(right_layout, stretch=1)
@@ -499,16 +500,15 @@ def create_assign_status_screen(stack, state) -> QWidget:
     return screen
 
 
-
+#This is the fourth screen that the user sees
 def create_fee_schedule_screen(stack, state) -> QWidget:
-    """Index 3: Collect per-file fees after files have been renamed (-flag, -vN, etc.)."""
     screen = QWidget()
     layout = QVBoxLayout(screen)
 
     layout.addWidget(QLabel("Fee Schedule (Index 3, Step 4)"))
 
     fee_inputs: Dict[str, QLineEdit] = {}
-    state["fee_schedule"] = {}          # reset each time we land here
+    state["fee_schedule"] = {}          
 
     validator = QIntValidator()
     validator.setBottom(1)
@@ -517,7 +517,7 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
     csv_paths = state.get("csv_paths", [])
     file_basenames = [os.path.basename(p) for p in csv_paths]
 
-    # ------------ per-file fee inputs ------------
+    #Creates fee inputs for each file
     file_form = QFormLayout()
     if not file_basenames:
         layout.addWidget(QLabel("⚠️ No CSV files found for this session."))
@@ -531,7 +531,7 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
 
     layout.addLayout(file_form)
 
-    # ------------ bulk helpers ------------
+    #Creates the bulk input
     layout.addWidget(QLabel("Bulk Assign to All:"))
     bulk_input = QLineEdit()
     bulk_input.setValidator(validator)
@@ -558,7 +558,6 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
     reset_all_btn.clicked.connect(reset_all)
     layout.addWidget(reset_all_btn)
 
-    # ------------ navigation ------------
     nav_row = QHBoxLayout()
 
     back_btn = QPushButton("Back")
@@ -566,13 +565,11 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
     nav_row.addWidget(back_btn)
 
     def save_and_continue():
-        # Persist the fees keyed by *basename* (matches summary screen)
         for fname in file_basenames:
             text = fee_inputs[fname].text()
             if text.isdigit():
                 state["fee_schedule"][fname] = int(text)
 
-        # Rebuild the summary screen with fresh data
         summary_screen = create_payment_summary_screen(stack, state)
         stack.removeWidget(stack.widget(4))
         stack.insertWidget(4, summary_screen)
@@ -587,28 +584,21 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
     return screen
 
 
-
-
-
-
 # ---------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------
 
 def create_program_flow_tab(state: Dict) -> QStackedWidget:
     stack = QStackedWidget()
-    state["stack"] = stack  # 🔁 Store for future screen swaps
+    state["stack"] = stack
 
-    stack.addWidget(create_welcome_screen(stack, state))          # 0
-    stack.addWidget(create_session_creation_screen(stack, state)) # 1
-    stack.addWidget(create_assign_status_screen(stack, state))    # 2
-    stack.addWidget(QWidget())  # Placeholder for fee screen       # 3
-    stack.addWidget(QWidget())  # Placeholder for payment summary  # 4
+    stack.addWidget(create_welcome_screen(stack, state))             # 0
+    stack.addWidget(create_session_creation_screen(stack, state))    # 1
+    stack.addWidget(create_assign_status_screen(stack, state))       # 2
+    stack.addWidget(QWidget())  # Placeholder for fee screen          # 3
+    stack.addWidget(QWidget())  # Placeholder for payment summary     # 4
 
     return stack
-
-
-
 
 
 def create_flagged_sessions_tab(state: Dict) -> QWidget:
@@ -672,7 +662,7 @@ def create_payment_summary_screen(stack, state) -> QWidget:
     # ------------------------------
     # Table 1: Status Count Summary
     # ------------------------------
-    statuses = ["regular", "manual", "comped", "refund", "other"]
+    statuses = ["regular", "manual", "comped", "refund", "waitlist", "other"]
     status_table = QTableWidget()
     layout.addWidget(status_table)
 
@@ -716,11 +706,7 @@ def create_payment_summary_screen(stack, state) -> QWidget:
 
     fee_schedule = state.get("fee_schedule", {})
     totals = dict.fromkeys(columns, 0.0)
-    print(fee_schedule)
     for row_idx, fname in enumerate(filenames):
-        print(row_idx)
-        print(filenames)
-        print(fee_schedule.get(fname))
         price = fee_schedule.get(fname, 0)
         
 
@@ -731,8 +717,6 @@ def create_payment_summary_screen(stack, state) -> QWidget:
         refund = counts.get("refund", 0)
 
         # Explicit Calculations
-        print(price)
-        print(counts)
         gross = regular * price
         trackithub = (regular + manual) * price * 0.10
 
@@ -767,17 +751,12 @@ def create_payment_summary_screen(stack, state) -> QWidget:
     back_btn.clicked.connect(lambda: stack.setCurrentIndex(3))
     nav_row.addWidget(back_btn)
 
-    next_btn = QPushButton("Next")
-    next_btn.clicked.connect(lambda: stack.setCurrentIndex(5))
-    nav_row.addWidget(next_btn)
-
     layout.addLayout(nav_row)
 
     return screen
 
 
 def create_session_crud_tab(state: Dict) -> QWidget:
-
     scr = QWidget()
     layout = QVBoxLayout(scr)
 
@@ -785,22 +764,23 @@ def create_session_crud_tab(state: Dict) -> QWidget:
     header.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(header)
 
+    # Date Selector
+    date_selector = QDateEdit()
+    date_selector.setCalendarPopup(True)
+    date_selector.setDisplayFormat("yyyy-MM-dd")
+    date_selector.setDate(QDate.currentDate())  # Default to today
+    layout.addWidget(QLabel("Select a date:"))
+    layout.addWidget(date_selector)
+
+    # Session dropdown
     session_dropdown = QComboBox()
     layout.addWidget(session_dropdown)
 
+    # Status label
     status_label = QLabel("Select a session to view or update its paid status.")
     layout.addWidget(status_label)
 
     sessions_path = os.path.join(os.getcwd(), "sessions")
-
-    def populate_sessions():
-        session_dropdown.clear()
-        if os.path.exists(sessions_path):
-            folders = sorted(
-                [f for f in os.listdir(sessions_path)
-                 if os.path.isdir(os.path.join(sessions_path, f))]
-            )
-            session_dropdown.addItems(folders)
 
     def get_metadata_path(session_name: str):
         return os.path.join(sessions_path, session_name, "metadata", "metadata.json")
@@ -835,22 +815,67 @@ def create_session_crud_tab(state: Dict) -> QWidget:
         except Exception as e:
             QMessageBox.critical(scr, "Error", f"Failed to update metadata: {e}")
 
+    # 🔄 Repopulate dropdown based on selected date
+    def populate_sessions():
+        session_dropdown.clear()
+        selected_date = date_selector.date().toString("yyyy-MM-dd")
+        if os.path.exists(sessions_path):
+            folders = sorted([
+                f for f in os.listdir(sessions_path)
+                if os.path.isdir(os.path.join(sessions_path, f)) and selected_date in f
+            ])
+            session_dropdown.addItems(folders)
+        if session_dropdown.count() > 0:
+            update_status_label()
+        else:
+            status_label.setText("No sessions found for this date.")
+
+    # 🔁 Connections
+    date_selector.dateChanged.connect(populate_sessions)
     session_dropdown.currentIndexChanged.connect(update_status_label)
 
+    # Delete session button with confirmation
+    def delete_selected_session():
+        session_name = session_dropdown.currentText()
+        if not session_name:
+            QMessageBox.warning(scr, "No Session Selected", "Please select a session to delete.")
+            return
+
+        confirm = QMessageBox.question(
+            scr,
+            "Confirm Deletion",
+            f"Are you sure you want to permanently delete the session:\n\n  {session_name}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if confirm == QMessageBox.StandardButton.Yes:
+            session_path = os.path.join(sessions_path, session_name)
+            try:
+                import shutil
+                shutil.rmtree(session_path)
+                QMessageBox.information(scr, "Deleted", f"Session '{session_name}' was deleted.")
+                populate_sessions()
+            except Exception as e:
+                QMessageBox.critical(scr, "Error", f"Failed to delete session:\n{e}")
+
+        # Paid/unpaid/delete buttons
     btn_row = QHBoxLayout()
     paid_btn = QPushButton("Mark as Paid")
     unpaid_btn = QPushButton("Mark as Unpaid")
+    delete_btn = QPushButton("Delete Session")
 
     paid_btn.clicked.connect(lambda: set_paid_status(True))
     unpaid_btn.clicked.connect(lambda: set_paid_status(False))
+    delete_btn.clicked.connect(delete_selected_session)
 
     btn_row.addWidget(paid_btn)
     btn_row.addWidget(unpaid_btn)
+    btn_row.addWidget(delete_btn)
     layout.addLayout(btn_row)
 
+
+    # Initial population
     populate_sessions()
-    if session_dropdown.count() > 0:
-        update_status_label()
 
     return scr
 
