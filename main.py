@@ -694,10 +694,25 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
 
     reset_btn = QPushButton("Reset Session")
     def reset_session():
-        keys_to_clear = ["csv_paths", "dataframes", "df", "current_session", "fee_schedule", "status_counts"]
+        # Clear state
+        keys_to_clear = ["csv_paths", "dataframes", "df", "current_session", "fee_schedule", "status_counts", "_last_selected_file"]
         for key in keys_to_clear:
             state.pop(key, None)
+
+        # Rebuild all major screens (indexes 0–2 at least)
+        stack.removeWidget(stack.widget(0))
+        stack.removeWidget(stack.widget(1))
+        stack.removeWidget(stack.widget(2))
+
+        stack.insertWidget(0, create_welcome_screen(stack, state))
+        stack.insertWidget(1, create_session_creation_screen(stack, state))
+        stack.insertWidget(2, create_assign_status_screen(stack, state))
+
         stack.setCurrentIndex(0)
+
+        # Update admin banner if applicable
+        if "_refresh_crud_banner" in state:
+            state["_refresh_crud_banner"]()
 
     reset_btn.clicked.connect(reset_session)
     nav_row.addWidget(reset_btn)
@@ -1145,6 +1160,109 @@ def create_current_session_files_tab(state: Dict) -> QWidget:
     scr.refresh = refresh
     return scr
 
+from collections import defaultdict
+
+def create_any_file_viewer_tab(state: Dict) -> QWidget:
+    scr = QWidget()
+    layout = QVBoxLayout(scr)
+
+    header = QLabel("Browse Any Session File")
+    header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    layout.addWidget(header)
+
+    club_dropdown = QComboBox()
+    date_dropdown = QComboBox()
+    file_dropdown = QComboBox()
+
+    layout.addWidget(QLabel("Select Club:"))
+    layout.addWidget(club_dropdown)
+    layout.addWidget(QLabel("Select Date:"))
+    layout.addWidget(date_dropdown)
+    layout.addWidget(QLabel("Select File:"))
+    layout.addWidget(file_dropdown)
+
+    table = QTableWidget()
+    layout.addWidget(table)
+
+    def load_csv_to_table(path: str):
+        try:
+            df = pd.read_csv(path)
+        except Exception as e:
+            table.setRowCount(0)
+            table.setColumnCount(1)
+            table.setHorizontalHeaderLabels(["Error"])
+            table.setItem(0, 0, QTableWidgetItem(f"Error loading CSV: {e}"))
+            return
+
+        table.setRowCount(len(df))
+        table.setColumnCount(len(df.columns))
+        table.setHorizontalHeaderLabels(df.columns.tolist())
+
+        for i, row in df.iterrows():
+            for j, val in enumerate(row):
+                item = QTableWidgetItem(str(val))
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                table.setItem(i, j, item)
+
+        table.resizeColumnsToContents()
+        table.horizontalHeader().setStretchLastSection(True)
+
+    def load_club_date_file_structure():
+        structure = defaultdict(lambda: defaultdict(list))
+        for session_name in os.listdir(SESSIONS_DIR):
+            session_path = os.path.join(SESSIONS_DIR, session_name)
+            meta_path = os.path.join(session_path, "metadata", "metadata.json")
+            if not os.path.exists(meta_path):
+                continue
+            try:
+                with open(meta_path) as f:
+                    meta = json.load(f)
+                club = meta.get("club")
+                date = meta.get("date")
+                csv_path = os.path.join(session_path, "csv")
+                if club and date and os.path.exists(csv_path):
+                    for f in os.listdir(csv_path):
+                        if f.endswith(".csv"):
+                            structure[club][date].append((session_path, f))
+            except:
+                continue
+        return structure
+
+    club_date_file_map = load_club_date_file_structure()
+
+    def on_club_change():
+        date_dropdown.clear()
+        file_dropdown.clear()
+        selected_club = club_dropdown.currentText()
+        if selected_club in club_date_file_map:
+            date_dropdown.addItems(sorted(club_date_file_map[selected_club].keys()))
+
+    def on_date_change():
+        file_dropdown.clear()
+        selected_club = club_dropdown.currentText()
+        selected_date = date_dropdown.currentText()
+        if selected_club in club_date_file_map and selected_date in club_date_file_map[selected_club]:
+            file_names = [f for (_, f) in club_date_file_map[selected_club][selected_date]]
+            file_dropdown.addItems(file_names)
+
+    def on_file_change():
+        selected_club = club_dropdown.currentText()
+        selected_date = date_dropdown.currentText()
+        selected_file = file_dropdown.currentText()
+        if not (selected_club and selected_date and selected_file):
+            return
+        for folder, fname in club_date_file_map[selected_club][selected_date]:
+            if fname == selected_file:
+                path = os.path.join(folder, "csv", fname)
+                load_csv_to_table(path)
+                break
+
+    club_dropdown.addItems(sorted(club_date_file_map.keys()))
+    club_dropdown.currentTextChanged.connect(on_club_change)
+    date_dropdown.currentTextChanged.connect(on_date_change)
+    file_dropdown.currentTextChanged.connect(on_file_change)
+
+    return scr
 
 
 # ---------------------------------------------------------------------
@@ -1161,6 +1279,8 @@ def create_main_window() -> QTabWidget:
     tabs.addTab(create_flagged_sessions_tab(state), "Flagged")
     tabs.addTab(create_session_admin_tab(state), "Session Admin")
     tabs.addTab(create_current_session_files_tab(state), "Current Session Files")
+    tabs.addTab(create_any_file_viewer_tab(state), "Browse All Files")
+
 
     return tabs
 
@@ -1171,6 +1291,20 @@ def create_main_window() -> QTabWidget:
 
 def main() -> None:
     app = QApplication(sys.argv)
+
+    # ✅ Load stylesheet in a PyInstaller-safe way
+    if getattr(sys, 'frozen', False):  # Running as .exe from PyInstaller
+        base_path = sys._MEIPASS
+    else:  # Running from source (e.g., VS Code)
+        base_path = os.path.dirname(os.path.abspath(__file__))
+
+    qss_path = os.path.join(base_path, "style.qss")
+    try:
+        with open(qss_path, "r") as f:
+            app.setStyleSheet(f.read())
+    except Exception as e:
+        print(f"Warning: Failed to load stylesheet ({qss_path}): {e}")
+
     window = create_main_window()
 
     # Hook up dynamic refresh
@@ -1185,7 +1319,6 @@ def main() -> None:
     window.resize(600, 450)
     window.show()
     sys.exit(app.exec())
-
 
 
 
