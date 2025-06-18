@@ -33,7 +33,9 @@ from PyQt6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QHeaderView,
+    QGroupBox
 )
+from PyQt6.QtWidgets import QMessageBox
 
 from pathlib import Path
 
@@ -78,8 +80,20 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
 
     select_files_btn = QPushButton("Select CSV Files")
     select_folder_btn = QPushButton("Select Folder")
+    layout.addWidget(select_files_btn)
+    layout.addWidget(select_folder_btn)
 
-    #Determines default status based on contents of notes
+    next_btn = QPushButton("Next")
+    next_btn.setEnabled(False)  # Start disabled
+    layout.addWidget(next_btn)
+
+    exit_btn = QPushButton("Exit Program")
+    exit_btn.clicked.connect(QApplication.quit)
+    layout.addWidget(exit_btn)
+
+    next_btn.clicked.connect(lambda: stack.setCurrentIndex(1))
+
+    # Determines default status based on contents of notes
     def determine_default_status(notes: str) -> str:
         n = str(notes).lower()
         if "comped" in n:
@@ -95,7 +109,7 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
         else:
             return "other"
 
-    #Loads the paths and dataframes into the state
+    # Loads the paths and dataframes into the state
     def load_paths(paths: List[str]):
         state["csv_paths"] = paths
         dfs, errors = [], []
@@ -103,11 +117,8 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
             try:
                 df = pd.read_csv(p, skiprows=1, header=None)  # Skip first row
                 df.columns = ["Name", "Email", "Phone Number", "Status", "Registration Time", "Notes"]
-
-                # Add default_status based on notes
                 df["default_status"] = df["Notes"].apply(determine_default_status)
                 dfs.append(df)
-
             except Exception as exc:
                 errors.append(f"{p}: {exc}")
 
@@ -119,7 +130,10 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
             msg += f" ( {len(errors)} failed )"
         file_label.setText(msg)
 
-    #The user selects csv files individually
+        # Enable "Next" if at least one file was successfully loaded
+        next_btn.setEnabled(len(dfs) > 0)
+
+    # The user selects csv files individually
     def select_files():
         paths, _ = QFileDialog.getOpenFileNames(
             screen, "Select CSV Files", "", "CSV Files (*.csv);;All Files (*)"
@@ -127,7 +141,7 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
         if paths:
             load_paths(paths)
 
-    #The user selects a folder (that contains only csv files)
+    # The user selects a folder (that contains only csv files)
     def select_folder():
         folder = QFileDialog.getExistingDirectory(screen, "Select Folder Containing CSV Files", "")
         if folder:
@@ -141,17 +155,6 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
 
     select_files_btn.clicked.connect(select_files)
     select_folder_btn.clicked.connect(select_folder)
-
-    layout.addWidget(select_files_btn)
-    layout.addWidget(select_folder_btn)
-
-    next_btn = QPushButton("Next")
-    next_btn.clicked.connect(lambda: stack.setCurrentIndex(1))
-    layout.addWidget(next_btn)
-
-    exit_btn = QPushButton("Exit Program")
-    exit_btn.clicked.connect(QApplication.quit)
-    layout.addWidget(exit_btn)
 
     return screen
 
@@ -323,11 +326,20 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
     create_btn.clicked.connect(create_session)
 
     # RIGHT SIDE – Club Management ------------------------------------
-    right_layout = QVBoxLayout()
+
+    right_group = QGroupBox("Club Management")
+    right_layout = QFormLayout(right_group)
 
     club_input = QLineEdit()
     club_input.setPlaceholderText("Enter club name")
-    right_layout.addWidget(club_input)
+    right_layout.addRow(QLabel("Club Name:"), club_input)
+
+    add_button = QPushButton("Add Club")
+    remove_button = QPushButton("Remove Club")
+    btn_row = QHBoxLayout()
+    btn_row.addWidget(add_button)
+    btn_row.addWidget(remove_button)
+    right_layout.addRow(QLabel("Actions:"), btn_row)
 
     def refresh_dropdown():
         club_selector.clear()
@@ -353,16 +365,12 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
             refresh_dropdown()
             club_input.clear()
 
-    add_button = QPushButton("Add Club")
     add_button.clicked.connect(add_club)
-    right_layout.addWidget(add_button)
-
-    remove_button = QPushButton("Remove Club")
     remove_button.clicked.connect(remove_club)
-    right_layout.addWidget(remove_button)
+
 
     main_layout.addLayout(left_layout, stretch=2)
-    main_layout.addLayout(right_layout, stretch=1)
+    main_layout.addWidget(right_group, stretch=1)
 
     return screen
 
@@ -592,6 +600,15 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
     next_btn = QPushButton("Next")
     next_btn.clicked.connect(save_and_continue)
     nav_row.addWidget(next_btn)
+    reset_btn = QPushButton("Reset Session")
+    def reset_session():
+        keys_to_clear = ["csv_paths", "dataframes", "df", "current_session", "fee_schedule", "status_counts"]
+        for key in keys_to_clear:
+            state.pop(key, None)
+        stack.setCurrentIndex(0)
+    reset_btn.clicked.connect(reset_session)
+    nav_row.addWidget(reset_btn)
+
 
     layout.addLayout(nav_row)
 
@@ -862,9 +879,11 @@ def create_session_admin_tab(state: Dict) -> QWidget:
             QMessageBox.warning(scr, "No Session Selected", "Select a session to delete.")
             return
         if QMessageBox.question(
-                scr, "Confirm Deletion",
-                f"Delete session '{sess}' permanently?",
-                QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            scr, "Confirm Deletion",
+            f"Delete session '{sess}' permanently?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        ) != QMessageBox.StandardButton.Yes:
+
             return
         try:
             import shutil
@@ -897,6 +916,90 @@ def create_session_admin_tab(state: Dict) -> QWidget:
     populate_sessions()  # initial fill
     return scr
 
+def create_current_session_files_tab(state: Dict) -> QWidget:
+    scr = QWidget()
+    scr_layout = QVBoxLayout(scr)
+
+    header = QLabel("Files in Current Session")
+    header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    scr_layout.addWidget(header)
+
+    file_dropdown = QComboBox()
+    scr_layout.addWidget(file_dropdown)
+
+    table = QTableWidget()
+    scr_layout.addWidget(table)
+
+    def load_csv_to_table(path: str):
+        try:
+            df = pd.read_csv(path)
+        except Exception as e:
+            table.setRowCount(0)
+            table.setColumnCount(1)
+            table.setHorizontalHeaderLabels(["Error"])
+            table.setItem(0, 0, QTableWidgetItem(f"Error loading CSV: {e}"))
+            return
+
+        table.setRowCount(len(df))
+        table.setColumnCount(len(df.columns))
+        table.setHorizontalHeaderLabels(df.columns.tolist())
+
+        for i, row in df.iterrows():
+            for j, val in enumerate(row):
+                item = QTableWidgetItem(str(val))
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                table.setItem(i, j, item)
+
+        table.resizeColumnsToContents()
+        table.horizontalHeader().setStretchLastSection(True)
+
+    def refresh():
+        file_dropdown.clear()
+        table.setRowCount(0)
+        table.setColumnCount(0)
+
+        current_session = state.get("current_session")
+        if not current_session or not os.path.exists(current_session):
+            file_dropdown.setEnabled(False)
+            table.setColumnCount(1)
+            table.setRowCount(1)
+            table.setHorizontalHeaderLabels(["Notice"])
+            table.setItem(0, 0, QTableWidgetItem("⚠️ No session created yet."))
+            return
+
+        csv_dir = os.path.join(current_session, "csv")
+        if not os.path.exists(csv_dir):
+            file_dropdown.setEnabled(False)
+            table.setColumnCount(1)
+            table.setRowCount(1)
+            table.setHorizontalHeaderLabels(["Notice"])
+            table.setItem(0, 0, QTableWidgetItem("⚠️ No CSV directory in session."))
+            return
+
+        filenames = sorted(f for f in os.listdir(csv_dir) if f.endswith(".csv"))
+        if not filenames:
+            file_dropdown.setEnabled(False)
+            table.setColumnCount(1)
+            table.setRowCount(1)
+            table.setHorizontalHeaderLabels(["Notice"])
+            table.setItem(0, 0, QTableWidgetItem("⚠️ No CSV files found."))
+            return
+
+        file_dropdown.setEnabled(True)
+        file_dropdown.addItems(filenames)
+
+        def update_display(index):
+            fname = file_dropdown.itemText(index)
+            if fname:
+                full_path = os.path.join(csv_dir, fname)
+                load_csv_to_table(full_path)
+
+        file_dropdown.currentIndexChanged.connect(update_display)
+        update_display(0)
+
+    scr.refresh = refresh  # allow external refresh
+    return scr
+
 
 
 # ---------------------------------------------------------------------
@@ -912,6 +1015,8 @@ def create_main_window() -> QTabWidget:
     tabs.addTab(create_program_flow_tab(state), "Program")
     tabs.addTab(create_flagged_sessions_tab(state), "Flagged")
     tabs.addTab(create_session_admin_tab(state), "Session Admin")
+    tabs.addTab(create_current_session_files_tab(state), "Current Session Files")
+
     return tabs
 
 
@@ -922,10 +1027,21 @@ def create_main_window() -> QTabWidget:
 def main() -> None:
     app = QApplication(sys.argv)
     window = create_main_window()
+
+    # Hook up dynamic refresh
+    def refresh_dynamic_tab(index):
+        widget = window.widget(index)
+        if hasattr(widget, "refresh"):
+            widget.refresh()
+
+    window.currentChanged.connect(refresh_dynamic_tab)
+
     window.setWindowTitle("AnkleBreaker")
     window.resize(600, 450)
     window.show()
     sys.exit(app.exec())
+
+
 
 
 if __name__ == "__main__":
