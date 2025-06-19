@@ -786,14 +786,27 @@ def create_flagged_sessions_tab(state: Dict) -> QWidget:
     return scr
 
 def create_payment_summary_screen(stack, state) -> QWidget:
-
-
     screen = QWidget()
     layout = QVBoxLayout(screen)
 
     header = QLabel("Payment Summary")
     header.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(header)
+
+    # ------------------------------
+    # Load Club Name from Metadata
+    # ------------------------------
+    session_dir = state.get("current_session")
+    club_name = "Club"
+    if session_dir:
+        metadata_path = os.path.join(session_dir, "metadata", "metadata.json")
+        if os.path.exists(metadata_path):
+            try:
+                with open(metadata_path, "r") as f:
+                    metadata = json.load(f)
+                club_name = metadata.get("club", "Club")
+            except Exception as e:
+                print(f"[ERROR] Failed to read metadata: {e}")
 
     # ------------------------------
     # Table 1: Status Count Summary
@@ -819,7 +832,6 @@ def create_payment_summary_screen(stack, state) -> QWidget:
             item = QTableWidgetItem(str(count))
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             status_table.setItem(row_idx, col_idx, item)
-
             totals[status] += count
 
     for col_idx, status in enumerate(statuses):
@@ -832,7 +844,7 @@ def create_payment_summary_screen(stack, state) -> QWidget:
     # ------------------------------
     layout.addWidget(QLabel("Financial Summary"))
 
-    columns = ["Gross", "TrackitHub", "PayPal", "Zorano"]
+    columns = ["Gross", "TrackitHub", "PayPal", club_name]
     financial_table = QTableWidget()
     financial_table.setColumnCount(len(columns))
     financial_table.setRowCount(len(filenames) + 1)
@@ -842,36 +854,33 @@ def create_payment_summary_screen(stack, state) -> QWidget:
 
     fee_schedule = state.get("fee_schedule", {})
     totals = dict.fromkeys(columns, 0.0)
+
     for row_idx, fname in enumerate(filenames):
         price = fee_schedule.get(fname, 0)
-        
-
         counts = status_counts.get(fname, {})
 
         regular = counts.get("regular", 0)
         manual = counts.get("manual", 0)
         refund = counts.get("refund", 0)
 
-        # Explicit Calculations
         gross = regular * price
         trackithub = (regular + manual) * price * 0.10
 
         paypal = 0.0
-        paypal_count = regular + refund
+        paypal_count = regular
         for _ in range(paypal_count):
             if price <= 10:
-                paypal += price * 0.05 + 0.05
+                paypal += price * 0.05 + 0.09
             else:
                 paypal += price * 0.0349 + 0.49
 
-        zorano = gross - trackithub - paypal
+        net_to_club = gross - trackithub - paypal
 
-        row_values = [gross, trackithub, paypal, zorano]
+        row_values = [gross, trackithub, paypal, net_to_club]
         for col_idx, value in enumerate(row_values):
             item = QTableWidgetItem(f"${value:.2f}")
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             financial_table.setItem(row_idx, col_idx, item)
-
             totals[columns[col_idx]] += value
 
     for col_idx, col_name in enumerate(columns):
@@ -888,7 +897,6 @@ def create_payment_summary_screen(stack, state) -> QWidget:
     nav_row.addWidget(back_btn)
 
     layout.addLayout(nav_row)
-
     return screen
 
 
@@ -1170,6 +1178,9 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
     header.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(header)
 
+    refresh_btn = QPushButton("🔄 Refresh")
+    layout.addWidget(refresh_btn)
+
     club_dropdown = QComboBox()
     date_dropdown = QComboBox()
     file_dropdown = QComboBox()
@@ -1207,6 +1218,9 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
         table.resizeColumnsToContents()
         table.horizontalHeader().setStretchLastSection(True)
 
+    # Shared variable to allow update from refresh logic
+    club_date_file_map = {}
+
     def load_club_date_file_structure():
         structure = defaultdict(lambda: defaultdict(list))
         for session_name in os.listdir(SESSIONS_DIR):
@@ -1217,33 +1231,91 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
             try:
                 with open(meta_path) as f:
                     meta = json.load(f)
-                club = meta.get("club")
-                date = meta.get("date")
+                club = str(meta.get("club")).strip()
+                date = str(meta.get("date")).strip()
                 csv_path = os.path.join(session_path, "csv")
                 if club and date and os.path.exists(csv_path):
                     for f in os.listdir(csv_path):
                         if f.endswith(".csv"):
                             structure[club][date].append((session_path, f))
-            except:
+            except Exception as e:
+                print(f"[ERROR] Skipping {session_name}: {e}")
                 continue
         return structure
 
-    club_date_file_map = load_club_date_file_structure()
+    def refresh_dropdowns():
+        nonlocal club_date_file_map
+        club_date_file_map = load_club_date_file_structure()
 
-    def on_club_change():
+        club_dropdown.blockSignals(True)
+        date_dropdown.blockSignals(True)
+        file_dropdown.blockSignals(True)
+
+        club_dropdown.clear()
         date_dropdown.clear()
         file_dropdown.clear()
+        table.setRowCount(0)
+        table.setColumnCount(0)
+
+        clubs = sorted(club_date_file_map.keys())
+        club_dropdown.addItems(clubs)
+
+        if clubs:
+            club_dropdown.setCurrentIndex(0)
+            on_club_change()
+
+        club_dropdown.blockSignals(False)
+        date_dropdown.blockSignals(False)
+        file_dropdown.blockSignals(False)
+
+    def on_club_change():
+        date_dropdown.blockSignals(True)
+        file_dropdown.blockSignals(True)
+
+        date_dropdown.clear()
+        file_dropdown.clear()
+        table.setRowCount(0)
+        table.setColumnCount(0)
+
         selected_club = club_dropdown.currentText()
         if selected_club in club_date_file_map:
-            date_dropdown.addItems(sorted(club_date_file_map[selected_club].keys()))
+            dates = sorted(club_date_file_map[selected_club].keys())
+            date_dropdown.addItems(dates)
+            if dates:
+                date_dropdown.setCurrentIndex(0)
+                on_date_change()
+
+        date_dropdown.blockSignals(False)
+        file_dropdown.blockSignals(False)
 
     def on_date_change():
+        file_dropdown.blockSignals(True)
         file_dropdown.clear()
+        table.setRowCount(0)
+        table.setColumnCount(0)
+
         selected_club = club_dropdown.currentText()
         selected_date = date_dropdown.currentText()
         if selected_club in club_date_file_map and selected_date in club_date_file_map[selected_club]:
             file_names = [f for (_, f) in club_date_file_map[selected_club][selected_date]]
             file_dropdown.addItems(file_names)
+            if file_names:  # ✅ instead of "if len(file_names) == 1"
+                file_dropdown.setCurrentIndex(0)
+                on_file_change()
+
+        file_dropdown.blockSignals(False)
+
+
+        selected_club = club_dropdown.currentText()
+        selected_date = date_dropdown.currentText()
+        if selected_club in club_date_file_map and selected_date in club_date_file_map[selected_club]:
+            file_names = [f for (_, f) in club_date_file_map[selected_club][selected_date]]
+            file_dropdown.addItems(file_names)
+            if len(file_names) == 1:
+                file_dropdown.setCurrentIndex(0)
+                on_file_change()
+
+        file_dropdown.blockSignals(False)
 
     def on_file_change():
         selected_club = club_dropdown.currentText()
@@ -1257,10 +1329,14 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
                 load_csv_to_table(path)
                 break
 
-    club_dropdown.addItems(sorted(club_date_file_map.keys()))
+    # Hook up signals
+    refresh_btn.clicked.connect(refresh_dropdowns)
     club_dropdown.currentTextChanged.connect(on_club_change)
     date_dropdown.currentTextChanged.connect(on_date_change)
     file_dropdown.currentTextChanged.connect(on_file_change)
+
+    # Initial populate
+    refresh_dropdowns()
 
     return scr
 
