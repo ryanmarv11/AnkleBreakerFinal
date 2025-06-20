@@ -10,5 +10,7 @@
        Click once on a folder it expands it to reveal the files inside
        Click twice on a folder, pop up a confirmation to load the session
 8) Move the reset session button to its own tab?
+       Mimic file edit design in the topleft, try to include current session name as a text label within the row button interface
+       One way or another make the session name universally accessible 
 9) Move club removal to the left side of the screen, hook it up to the dropdown
 10) Create confirmation for session Creation
