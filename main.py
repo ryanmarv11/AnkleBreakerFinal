@@ -7,6 +7,7 @@ from typing import Dict, List
 
 from collections import defaultdict 
 
+
 import pandas as pd
 
 from PyQt6.QtCore import QDate, Qt
@@ -38,8 +39,16 @@ from PyQt6.QtWidgets import (
     QGroupBox
 )
 from PyQt6.QtWidgets import QMessageBox
-
 from pathlib import Path
+
+# signals.py (or stick it near the top of your main file)
+from PyQt6.QtCore import QObject, pyqtSignal
+
+class AppSignals(QObject):
+    sessionsChanged = pyqtSignal()   # new/edited/deleted session folders
+    clubsChanged    = pyqtSignal()   # club added/removed
+    dataChanged     = pyqtSignal()   # statuses, fees, etc. tweaked
+
 
 BASE_DIR      = Path.home() / "AnkleBreakerData"
 BASE_DIR.mkdir(parents=True, exist_ok=True)
@@ -405,6 +414,9 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
         stack.removeWidget(stack.widget(2))
         stack.insertWidget(2, new_assign)
         stack.setCurrentIndex(2)
+        state["signals"].sessionsChanged.emit()
+        state["signals"].dataChanged.emit()
+
 
     create_btn.clicked.connect(create_session)
 
@@ -428,6 +440,7 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
         club_selector.clear()
         club_selector.addItems(clubs)
         update_status()
+    state["signals"].clubsChanged.connect(refresh_dropdown)
 
     def add_club():
         new_club = club_input.text().strip()
@@ -438,6 +451,8 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
         save_global_metadata(state["global_metadata"])
         refresh_dropdown()
         club_input.clear()
+        state["signals"].clubsChanged.emit()
+
 
     def remove_club():
         club_to_remove = club_input.text().strip()
@@ -447,6 +462,8 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
             save_global_metadata(state["global_metadata"])
             refresh_dropdown()
             club_input.clear()
+            state["signals"].clubsChanged.emit()
+
 
     add_button.clicked.connect(add_club)
     remove_button.clicked.connect(remove_club)
@@ -539,6 +556,7 @@ def create_assign_status_screen(stack, state) -> QWidget:
         state["status_counts"] = counts_per_file
 
     def update_person_buttons(df_index):
+    # nuke previous widgets
         while scroll_layout.count():
             child = scroll_layout.takeAt(0)
             if child.widget():
@@ -551,9 +569,8 @@ def create_assign_status_screen(stack, state) -> QWidget:
             person_label = QLabel(f"{row['Name']} — Default: {row['default_status']}")
             person_box.addWidget(person_label)
 
-            button_row = QHBoxLayout()
-            statuses = ["regular", "manual", "comped", "refund", "waitlist", "other"]
-
+            button_row   = QHBoxLayout()
+            statuses     = ["regular", "manual", "comped", "refund", "waitlist", "other"]
             button_group = QButtonGroup(screen)
             button_group.setExclusive(True)
 
@@ -563,11 +580,13 @@ def create_assign_status_screen(stack, state) -> QWidget:
                 if row["current_status"] == status:
                     btn.setChecked(True)
 
+                # click handler WITH signal emission
                 def make_click_handler(status=status, row_idx=idx, df=df):
                     def handler():
                         df.at[row_idx, "current_status"] = status
                         update_other_display()
                         update_status_counts()
+                        state["signals"].dataChanged.emit()   # <- new line: shout “data changed!”
                     return handler
 
                 btn.clicked.connect(make_click_handler())
@@ -580,7 +599,7 @@ def create_assign_status_screen(stack, state) -> QWidget:
             wrapper.setFrameShape(QFrame.Shape.Box)
             scroll_layout.addWidget(wrapper)
 
-        update_status_counts()
+        update_status_counts()  # initial build
 
     update_other_display()
     file_dropdown.addItems(session_csvs)
@@ -702,6 +721,9 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
             QMessageBox.information(screen, "Saved", "Fee schedule saved to metadata.")
         except Exception as e:
             QMessageBox.critical(screen, "Error", f"Failed to save fees:\n{e}")
+        state["signals"].dataChanged.emit()
+
+
 
     save_btn.clicked.connect(save_fee_schedule)
     layout.addWidget(save_btn)
@@ -813,10 +835,8 @@ def create_flagged_sessions_tab(state: Dict) -> QWidget:
             except Exception as e:
                 print(f"Error reading {metadata_path}: {e}")
 
-    refresh_btn = QPushButton("Refresh")
-    refresh_btn.clicked.connect(refresh_flagged)
-    layout.addWidget(refresh_btn)
-
+    
+    state["signals"].sessionsChanged.connect(refresh_flagged) 
     refresh_flagged()
 
     return scr
@@ -1052,8 +1072,12 @@ def create_session_admin_tab(state: Dict) -> QWidget:
             with open(mpath, "w") as f:
                 json.dump(meta, f, indent=4)
             update_status_label()
+            state["signals"].dataChanged.emit()
         except Exception as exc:
             QMessageBox.critical(scr, "Error", f"Failed to update metadata:\n{exc}")
+
+
+
 
     # -- delete with confirmation ------------------------------------
     def delete_session() -> None:
@@ -1071,9 +1095,13 @@ def create_session_admin_tab(state: Dict) -> QWidget:
             import shutil
             shutil.rmtree(os.path.join(sessions_path, sess))
             QMessageBox.information(scr, "Deleted", f"Session '{sess}' deleted.")
+            state["signals"].sessionsChanged.emit()
+            state["signals"].dataChanged.emit()
             on_date_selected()  # refresh session dropdown
         except Exception as exc:
             QMessageBox.critical(scr, "Error", f"Failed to delete session:\n{exc}")
+
+
 
     # Buttons
     row = QHBoxLayout()
@@ -1084,7 +1112,6 @@ def create_session_admin_tab(state: Dict) -> QWidget:
         btn.clicked.connect(func)
         row.addWidget(btn)
 
-    refresh_btn = QPushButton("Refresh")
     def hard_refresh():
         nonlocal club_to_dates
         club_to_dates = load_club_dates()
@@ -1093,14 +1120,15 @@ def create_session_admin_tab(state: Dict) -> QWidget:
         session_dropdown.clear()
         refresh_current_session_label()
         status_label.setText("Select a session to view or update its paid status.")
-    refresh_btn.clicked.connect(hard_refresh)
-    row.addWidget(refresh_btn)
     layout.addLayout(row)
 
     # Signal wiring
     club_selector.currentTextChanged.connect(on_club_selected)
     date_selector.currentTextChanged.connect(on_date_selected)
     session_dropdown.currentIndexChanged.connect(update_status_label)
+    # auto-refresh when sessions or clubs change
+    state["signals"].sessionsChanged.connect(hard_refresh)
+    state["signals"].clubsChanged.connect(hard_refresh)   # optional but handy
 
     return scr
 
@@ -1200,6 +1228,8 @@ def create_current_session_files_tab(state: Dict) -> QWidget:
         update_display(idx)
 
         file_dropdown.blockSignals(False)
+    state["signals"].dataChanged.connect(refresh)
+    state["signals"].sessionsChanged.connect(refresh)
 
     scr.refresh = refresh
     return scr
@@ -1214,8 +1244,7 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
     header.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(header)
 
-    refresh_btn = QPushButton("🔄 Refresh")
-    layout.addWidget(refresh_btn)
+
 
     club_dropdown = QComboBox()
     date_dropdown = QComboBox()
@@ -1341,18 +1370,6 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
 
         file_dropdown.blockSignals(False)
 
-
-        selected_club = club_dropdown.currentText()
-        selected_date = date_dropdown.currentText()
-        if selected_club in club_date_file_map and selected_date in club_date_file_map[selected_club]:
-            file_names = [f for (_, f) in club_date_file_map[selected_club][selected_date]]
-            file_dropdown.addItems(file_names)
-            if len(file_names) == 1:
-                file_dropdown.setCurrentIndex(0)
-                on_file_change()
-
-        file_dropdown.blockSignals(False)
-
     def on_file_change():
         selected_club = club_dropdown.currentText()
         selected_date = date_dropdown.currentText()
@@ -1366,12 +1383,13 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
                 break
 
     # Hook up signals
-    refresh_btn.clicked.connect(refresh_dropdowns)
     club_dropdown.currentTextChanged.connect(on_club_change)
     date_dropdown.currentTextChanged.connect(on_date_change)
     file_dropdown.currentTextChanged.connect(on_file_change)
 
     # Initial populate
+    state["signals"].sessionsChanged.connect(refresh_dropdowns)
+
     refresh_dropdowns()
 
     return scr
@@ -1384,6 +1402,9 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
 def create_main_window() -> QTabWidget:
     tabs = QTabWidget()
     state: Dict = {}
+    # just after you build the `state` dict in create_main_window()
+    state["signals"] = AppSignals()      # one instance for the whole app
+
     state["global_metadata"] = load_global_metadata()
 
 

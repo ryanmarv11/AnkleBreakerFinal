@@ -1,12 +1,12 @@
 *1) Change Zorano column in summary table to the club name for the session
-2) Unify refresh button
+*2) Unify refresh button
 3) Implement unflagging
        User edits the csv  
        Program updates the flag status after checking
 4) Put the current_status in the files so when loading a session the choices get remembered
 *5) Refunds are free, fix the logic for that
 6) Double check the manual logic
-7*) In the welcome screen, make a load session graphic
+*7) In the welcome screen, make a load session graphic
        Click once on a folder it expands it to reveal the files inside
        Click twice on a folder, pop up a confirmation to load the session
 8) Move the reset session button to its own tab?
