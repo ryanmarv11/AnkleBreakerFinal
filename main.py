@@ -82,14 +82,11 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
 
     select_files_btn = QPushButton("Select CSV Files")
     select_folder_btn = QPushButton("Select Folder")
-    load_session_btn = QPushButton("Select Previous Session")  # ✅ NEW button
-
     layout.addWidget(select_files_btn)
     layout.addWidget(select_folder_btn)
-    layout.addWidget(load_session_btn)  # ✅ Add after the others
 
     next_btn = QPushButton("Next")
-    next_btn.setEnabled(False)  # Start disabled
+    next_btn.setEnabled(False)
     layout.addWidget(next_btn)
 
     exit_btn = QPushButton("Exit Program")
@@ -98,6 +95,7 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
 
     next_btn.clicked.connect(lambda: stack.setCurrentIndex(1))
 
+    # -------------- CSV Loading -------------------
     def determine_default_status(notes: str) -> str:
         n = str(notes).lower()
         if "comped" in n:
@@ -152,12 +150,51 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
             if paths:
                 load_paths(paths)
 
-    # ✅ NEW: Load a previous session from folder and jump to assign screen
-    def load_previous_session():
-        session_dir = QFileDialog.getExistingDirectory(screen, "Select a Previous Session Folder", str(SESSIONS_DIR))
-        if not session_dir:
+    # -------------- Tree View for Existing Sessions -------------------
+    tree = QTreeWidget()
+    tree.setHeaderHidden(True)
+    tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+    layout.addWidget(QLabel("Browse Existing Sessions:"))
+    layout.addWidget(tree)
+
+    def refresh_session_tree():
+        tree.clear()
+        if not os.path.exists(SESSIONS_DIR):
             return
 
+        for session_name in sorted(os.listdir(SESSIONS_DIR)):
+            session_path = os.path.join(SESSIONS_DIR, session_name)
+            meta_path = os.path.join(session_path, "metadata", "metadata.json")
+            csv_path = os.path.join(session_path, "csv")
+
+            if not os.path.exists(meta_path) or not os.path.exists(csv_path):
+                continue
+
+            parent_item = QTreeWidgetItem([session_name])
+            for fname in sorted(os.listdir(csv_path)):
+                if fname.endswith(".csv"):
+                    QTreeWidgetItem(parent_item, [fname])
+            tree.addTopLevelItem(parent_item)
+
+    def confirm_and_load_session(session_name: str):
+        session_dir = os.path.join(SESSIONS_DIR, session_name)
+        reply = QMessageBox.question(
+            screen,
+            "Load Session",
+            f"Do you want to load session '{session_name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            load_session_from_folder(session_dir)
+
+    tree.itemDoubleClicked.connect(lambda item, _: (
+        confirm_and_load_session(item.text(0))
+        if not item.parent() else None  # Only trigger on top-level (session) items
+    ))
+
+    refresh_session_tree()
+
+    def load_session_from_folder(session_dir: str):
         metadata_path = os.path.join(session_dir, "metadata", "metadata.json")
         csv_dir = os.path.join(session_dir, "csv")
 
@@ -169,7 +206,6 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
             with open(metadata_path, "r") as f:
                 metadata = json.load(f)
 
-            # ✅ Extract and store fees
             fees = metadata.get("fees", {})
             state["fee_schedule"] = {fname: int(val) for fname, val in fees.items() if str(val).isdigit()}
 
@@ -199,9 +235,9 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
         except Exception as e:
             QMessageBox.critical(screen, "Load Failed", f"Could not load session:\n{e}")
 
+    # Button hooks
     select_files_btn.clicked.connect(select_files)
     select_folder_btn.clicked.connect(select_folder)
-    load_session_btn.clicked.connect(load_previous_session)  # ✅ Connect new button
 
     return screen
 
