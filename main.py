@@ -202,6 +202,8 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
     ))
 
     refresh_session_tree()
+    state["signals"].sessionsChanged.connect(refresh_session_tree)
+
 
     def load_session_from_folder(session_dir: str):
         metadata_path = os.path.join(session_dir, "metadata", "metadata.json")
@@ -809,20 +811,47 @@ def create_flagged_sessions_tab(state: Dict) -> QWidget:
     tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
     layout.addWidget(tree)
 
+    # Edit & Unflag UI
+    edit_box = QGroupBox("Edit Notes and Unflag")
+    edit_layout = QFormLayout(edit_box)
+    name_dropdown = QComboBox()
+    note_input = QLineEdit()
+    save_btn = QPushButton("Save Note")
+    edit_layout.addRow("Select Name:", name_dropdown)
+    edit_layout.addRow("Edit Note:", note_input)
+    edit_layout.addWidget(save_btn)
+    layout.addWidget(edit_box)
+    edit_box.setEnabled(False)
+
+    selected_session = None
+    selected_file = None
+    df = None
+
+    def determine_default_status(notes: str) -> str:
+        n = str(notes).lower()
+        if "comped" in n:
+            return "comped"
+        elif "no capacity, and room on the waiting list : register" in n:
+            return "waitlist"
+        elif "refund" in n:
+            return "refund"
+        elif "manually confirmed by" in n:
+            return "manual"
+        elif "not over capacity: register" in n:
+            return "regular"
+        else:
+            return "other"
+
     def refresh_flagged():
         tree.clear()
-
         sessions_path = SESSIONS_DIR
-
         if not os.path.exists(sessions_path):
             return
-
         for session_name in sorted(os.listdir(sessions_path)):
             session_path = os.path.join(sessions_path, session_name)
             metadata_path = os.path.join(session_path, "metadata", "metadata.json")
             if not os.path.exists(metadata_path):
                 continue
-
             try:
                 with open(metadata_path, "r") as f:
                     metadata = json.load(f)
@@ -835,8 +864,89 @@ def create_flagged_sessions_tab(state: Dict) -> QWidget:
             except Exception as e:
                 print(f"Error reading {metadata_path}: {e}")
 
-    
-    state["signals"].sessionsChanged.connect(refresh_flagged) 
+    def on_tree_item_selected(item):
+        nonlocal selected_session, selected_file, df
+        parent = item.parent()
+        if parent is None:
+            return
+        selected_session = parent.text(0)
+        selected_file = item.text(0)
+        session_dir = os.path.join(SESSIONS_DIR, selected_session)
+        full_path = os.path.join(session_dir, "csv", selected_file)
+        if not os.path.exists(full_path):
+            return
+        try:
+            df = pd.read_csv(full_path)
+            if "Name" in df.columns and "Notes" in df.columns:
+                name_dropdown.clear()
+                name_dropdown.addItems(df["Name"].tolist())
+                edit_box.setEnabled(True)
+                note_input.setText("")
+        except Exception as e:
+            print(f"[ERROR] Failed to load {full_path}: {e}")
+            df = None
+            edit_box.setEnabled(False)
+
+    def on_name_selected(name):
+        if df is None:
+            return
+        note = df[df["Name"] == name]["Notes"].values[0]
+        note_input.setText(str(note))
+
+    def on_save_note():
+        nonlocal selected_session, selected_file, df
+        if df is None:
+            return
+        name = name_dropdown.currentText()
+        new_note = note_input.text()
+        if not name:
+            return
+        df.loc[df["Name"] == name, "Notes"] = new_note
+        df["default_status"] = df["Notes"].apply(determine_default_status)
+
+        session_path = os.path.join(SESSIONS_DIR, selected_session)
+        csv_dir = os.path.join(session_path, "csv")
+        old_path = os.path.join(csv_dir, selected_file)
+        df.to_csv(old_path, index=False)
+
+        should_flag = (df["default_status"] == "other").any()
+        base_name = selected_file.replace("-flag.csv", ".csv") if selected_file.endswith("-flag.csv") else selected_file
+        new_file_name = base_name.replace(".csv", "-flag.csv") if should_flag else base_name
+        new_path = os.path.join(csv_dir, new_file_name)
+
+        if old_path != new_path:
+            os.rename(old_path, new_path)
+
+        meta_path = os.path.join(session_path, "metadata", "metadata.json")
+        if os.path.exists(meta_path):
+            with open(meta_path, "r") as f:
+                meta = json.load(f)
+            all_files = os.listdir(csv_dir)
+            flagged_files = [f for f in all_files if f.endswith("-flag.csv")]
+            meta["flagged_files"] = flagged_files
+            meta["flagged"] = bool(flagged_files)
+
+            current_name = os.path.basename(session_path)
+            new_session_name = current_name.replace("-flag", "") if not flagged_files else (
+                current_name if "-flag" in current_name else f"{current_name}-flag"
+            )
+            if new_session_name != current_name:
+                new_session_path = os.path.join(SESSIONS_DIR, new_session_name)
+                os.rename(session_path, new_session_path)
+                selected_session = new_session_name
+            with open(os.path.join(SESSIONS_DIR, selected_session, "metadata", "metadata.json"), "w") as f:
+                json.dump(meta, f, indent=4)
+
+        state["signals"].sessionsChanged.emit()
+        state["signals"].dataChanged.emit()
+        
+        refresh_flagged()
+
+    tree.itemClicked.connect(on_tree_item_selected)
+    name_dropdown.currentTextChanged.connect(on_name_selected)
+    save_btn.clicked.connect(on_save_note)
+
+    state["signals"].sessionsChanged.connect(refresh_flagged)
     refresh_flagged()
 
     return scr
