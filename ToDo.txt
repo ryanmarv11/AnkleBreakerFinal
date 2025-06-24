@@ -1,0 +1,39 @@
+*1) Change Zorano column in summary table to the club name for the session
+*2) Unify refresh button    
+*3) Implement unflagging (revisit this, it's broken)
+       User edits the csv  
+       Program updates the flag status after checking
+       Create another status column
+       Change flagging to be based on the current status
+*4) Put the current_status in the files so when loading a session the choices get remembered
+       update browse any session file refresh too
+*5) Refunds are free, fix the logic for that
+*6) Double check the manual logic
+*7) In the welcome screen, make a load session graphic
+       Click once on a folder it expands it to reveal the files inside
+       Click twice on a folder, pop up a confirmation to load the session
+8*) Move the reset session button to its own tab?
+       Mimic file edit design in the topleft, try to include current session name as a text label within the row button interface
+9*) Move club removal to the left side of the screen, hook it up to the dropdown
+10*) Create confirmation for session Creation
+11*) Add No Show status
+       During notes parsing, make another column for no show, if no show is in the notes, have that col value be true
+12*)  One way or another make the session name universally accessible 
+13) Manual status divide into 2, cash and paypal error
+14) AnkleBreaker notes column for user notes
+15) Implement for when the waitlist is full
+
+Things to implement before our meeting today
+1) Creation of the file, edit tab in the top left, for now just have exit program, load session, reset session. Another tab for marking a session as paid, unpaid, and deleting a session
+2) Deimplement no show as a status, instead have it be a modifier and have it be a part of the AnkleBreaker note
+       Allow the user to modify the AnkleBreaker note
+3) Flagging logic, initially flag based on default status, for deflagging have the user edit the current_status then check if any of the other data values have other as a current status
+
+Things to implement after the meeting on 6/23
+1*)Next to do list: remove the edit note widget from the flagged sessions 
+2*)Implement when you double click on a file, have that file be presented in the browse all files tab
+3) QOL have folder dialog boxes open to the AnkleBreakerdata folder
+4) File dropdown duplicates
+5*) After deleting, update the graphic in the welcome screen (this didn't require any fixing apparently, it just worked)
+       make sure the folder actually gets deleted
+6) Grey out the next button in create session until a session has been created!
