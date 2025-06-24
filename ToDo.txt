@@ -37,3 +37,23 @@ Things to implement after the meeting on 6/23
 5*) After deleting, update the graphic in the welcome screen (this didn't require any fixing apparently, it just worked)
        make sure the folder actually gets deleted
 6) Grey out the next button in create session until a session has been created!
+
+6/24 Meeting
+1*)ON flagged sessions, swap save note button and edit note input
+2*)Have load session look for AnkleBreakerData folder, should be able to just find the location where sessions are being stored
+	See if the file explorer can be locked in a certain view
+	Change Load Folder to Load Session
+3*)Add load session button in Session Admin folder
+4*) Investigate ability to turn off scrolling for when hovering over a dropdown, see what the logistics are. 
+	Probably just disable it since it can only lead to unexpected outcomes
+	Should be able to click then scroll
+5*) Change the menu bar
+	Name of button from load to AnkleBar
+6) For the load file graphic, have two levels where the first level is a bunch of clubs and the second level is the sessions for those clubs
+	Imagery of folders and buttons 
+	Add a filter for date, add a filter for flagged, add a filter for unpaid
+7*) 5 ways to load session
+	Load session graphic in the welcome screen
+	Load session option in the AnkleBar via file explorer
+	Load session option in the AnkleBar via the file graphic of expansion
+8) Have load session graphic on welcome screen sort by most recently modified

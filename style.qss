@@ -25,6 +25,23 @@ QPushButton:pressed {
     background-color: #2C5F9E;
 }
 
+QPushButton.folder-button {
+    background-color: #ffe680;
+    color: #333;
+    border: 1px solid #d4af37;
+    border-radius: 10px;
+    padding: 10px;
+    min-width: 100px;
+    min-height: 80px;
+    text-align: center;
+    font-weight: bold;
+}
+
+QPushButton.folder-button:hover {
+    background-color: #ffefb3;
+    border: 1px solid #c49b26;
+}
+
 QLineEdit, QComboBox, QTextEdit, QDateEdit {
     background-color: white;
     border: 1px solid #cccccc;
@@ -45,6 +62,12 @@ QHeaderView::section {
     font-weight: bold;
 }
 
+QTreeWidget {
+    background-color: #ffffff;
+    border: 1px solid #ccc;
+    padding: 5px;
+}
+
 QPushButton:checked {
     background-color: #28a745;
     color: white;
@@ -52,7 +75,26 @@ QPushButton:checked {
 }
 
 QPushButton:disabled {
-    background-color: #3b5b80;  /* darker shade of blue */
+    background-color: #3b5b80;
     color: #dcdcdc;
     border: 1px solid #2c3e50;
+}
+
+QToolButton[class="folder-button"] {
+    background-color: #ffda75;
+    border: 2px solid #d1a842;
+    border-radius: 8px;
+    padding: 6px;
+    font-weight: bold;
+    color: #444;
+}
+
+QToolButton[class="folder-button"]:hover {
+    background-color: #ffe599;
+    border-color: #b28b2d;
+}
+
+QToolButton[class="folder-button"]:pressed {
+    background-color: #fcd76a;
+    border-color: #a0761a;
 }

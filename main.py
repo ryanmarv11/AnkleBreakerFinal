@@ -11,8 +11,8 @@ from typing import Dict, List
 from collections import defaultdict 
 from datetime import datetime
 
-from PyQt6.QtCore import QDate, Qt, QObject, pyqtSignal
-from PyQt6.QtGui import QIntValidator, QAction
+from PyQt6.QtCore import QDate, Qt, QObject, pyqtSignal, QEvent, QSize
+from PyQt6.QtGui import QIntValidator, QAction, QWheelEvent, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -42,6 +42,12 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QMenuBar,
     QMenu,
+    QListWidgetItem,
+    QListWidget,
+    QGridLayout,
+    QStyle,
+    QToolButton, 
+    QSizePolicy
 
 )
 
@@ -96,6 +102,154 @@ def load_club_dates() -> Dict[str, List[str]]:
                 print(f"[ERROR] Failed to read metadata for session {f}: {e}")
     return club_to_dates
 
+def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidget:
+    scr = QWidget()
+    layout = QVBoxLayout(scr)
+    layout.setContentsMargins(12, 12, 12, 12)
+
+    # Back to Welcome button (top-left)
+    top_bar = QHBoxLayout()
+    top_bar.setContentsMargins(0, 0, 0, 0)
+
+    back_to_welcome_btn = QToolButton()
+    back_to_welcome_btn.setText("← Back to Welcome")
+    back_to_welcome_btn.setStyleSheet("""
+        QToolButton {
+            background-color: #5b7db1;
+            color: white;
+            border-radius: 6px;
+            padding: 4px 10px;
+        }
+        QToolButton:hover {
+            background-color: #486a9c;
+        }
+    """)
+    back_to_welcome_btn.clicked.connect(lambda: (
+        state["tabs"].setCurrentIndex(0),
+        state["stack"].setCurrentIndex(0)
+    ))
+
+    top_bar.addWidget(back_to_welcome_btn)
+    top_bar.addStretch()
+    layout.addLayout(top_bar)
+
+    # Header
+    header = QLabel("Select a Club")
+    header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    layout.addWidget(header)
+
+    # Secondary back button (between club and session views)
+    back_btn = QToolButton()
+    back_btn.setText("← Back")
+    back_btn.setVisible(False)
+    back_btn.setStyleSheet("""
+        QToolButton {
+            background-color: #5b7db1;
+            color: white;
+            border-radius: 6px;
+            padding: 4px 10px;
+        }
+        QToolButton:hover {
+            background-color: #486a9c;
+        }
+    """)
+    layout.addWidget(back_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+
+    content_widget = QWidget()
+    content_layout = QGridLayout(content_widget)
+    layout.addWidget(content_widget)
+
+    tree = QTreeWidget()
+    tree.setHeaderHidden(True)
+    tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+    tree.setVisible(False)
+    layout.addWidget(tree)
+
+    def extract_club_names():
+        club_names = set()
+        if not os.path.exists(SESSIONS_DIR):
+            return []
+        for folder in os.listdir(SESSIONS_DIR):
+            parts = folder.split("-")
+            if len(parts) >= 4 and parts[0] == "Session":
+                club = parts[1] 
+                club_names.add(club)
+        return sorted(club_names)
+
+    def show_club_buttons():
+        header.setText("Select a Club")
+        back_btn.setVisible(False)
+        content_widget.setVisible(True)
+        tree.setVisible(False)
+
+        for i in reversed(range(content_layout.count())):
+            content_layout.itemAt(i).widget().setParent(None)
+
+        club_names = extract_club_names()
+        for idx, club in enumerate(club_names):
+            btn = QToolButton()
+            btn.setText(club)
+            btn.setIcon(QIcon.fromTheme("folder"))
+            btn.setIconSize(QSize(48, 48))
+            btn.setFixedSize(120, 100)
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+
+            btn.setProperty("class", "folder-button")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
+            btn.mouseDoubleClickEvent = lambda e, club=club: show_sessions_for_club(club)
+            content_layout.addWidget(btn, idx // 4, idx % 4)
+
+    def show_sessions_for_club(club: str):
+        header.setText(f"Sessions for {club}")
+        back_btn.setVisible(True)
+        content_widget.setVisible(False)
+        tree.setVisible(True)
+
+        tree.clear()
+        for folder in sorted(os.listdir(SESSIONS_DIR)):
+            parts = folder.split("-")
+            if len(parts) >= 4 and parts[0] == "Session" and parts[1] == club:
+                session_path = os.path.join(SESSIONS_DIR, folder)
+                meta_path = os.path.join(session_path, "metadata", "metadata.json")
+                csv_path = os.path.join(session_path, "csv")
+
+                if not os.path.exists(meta_path) or not os.path.exists(csv_path):
+                    continue
+
+                parent_item = QTreeWidgetItem([folder])
+                for fname in sorted(os.listdir(csv_path)):
+                    if fname.endswith(".csv"):
+                        QTreeWidgetItem(parent_item, [fname])
+                tree.addTopLevelItem(parent_item)
+
+    def confirm_and_load_session(session_dir):
+        reply = QMessageBox.question(
+            scr,
+            "Load Session",
+            f"Are you sure you want to load this session?\n\n{session_dir}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            load_session_from_folder(session_dir, stack, state, scr)
+
+    tree.itemDoubleClicked.connect(
+        lambda item, _: confirm_and_load_session(os.path.join(SESSIONS_DIR, item.text(0)))
+    )
+
+    back_btn.clicked.connect(show_club_buttons)
+
+    show_club_buttons()
+    return scr
+
+class WheelEventFilter(QObject):
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Wheel:
+            return True  # Block the wheel event
+        return super().eventFilter(obj, event)
+
+
 
 # ---------------------------------------------------------------------
 # Screens for Program Flow Tab
@@ -122,11 +276,22 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
     next_btn.setEnabled(False)
     layout.addWidget(next_btn)
 
+    # --- ADDED BUTTON ---
+    graphical_loader_btn = QPushButton("Graphical Session Loader")
+    layout.addWidget(graphical_loader_btn)
+
     exit_btn = QPushButton("Exit Program")
     exit_btn.clicked.connect(QApplication.quit)
     layout.addWidget(exit_btn)
 
     next_btn.clicked.connect(lambda: stack.setCurrentIndex(1))
+
+    def open_graphical_loader():
+        scr = create_graphical_loader_screen(stack, state)
+        stack.addWidget(scr)
+        stack.setCurrentWidget(scr)
+
+    graphical_loader_btn.clicked.connect(open_graphical_loader)
 
     # -------------- CSV Loading -------------------
     def determine_default_status(notes: str) -> str:
@@ -174,7 +339,7 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
             load_paths(paths)
 
     def select_folder():
-        folder = QFileDialog.getExistingDirectory(screen, "Select Folder Containing CSV Files", "")
+        folder = QFileDialog.getExistingDirectory(screen, "Select Folder Containing CSV Files", str(BASE_DIR))
         if folder:
             paths = [
                 os.path.join(folder, f)
@@ -205,9 +370,17 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
                 continue
 
             parent_item = QTreeWidgetItem([session_name])
-            for fname in sorted(os.listdir(csv_path)):
-                if fname.endswith(".csv"):
-                    QTreeWidgetItem(parent_item, [fname])
+
+            # Sort files by most recently modified
+            files = [
+                (fname, os.path.getmtime(os.path.join(csv_path, fname)))
+                for fname in os.listdir(csv_path)
+                if fname.endswith(".csv")
+            ]
+            files.sort(key=lambda x: x[1], reverse=True)
+
+            for fname, _ in files:
+                QTreeWidgetItem(parent_item, [fname])
             tree.addTopLevelItem(parent_item)
 
     def confirm_and_load_session(session_dir):
@@ -221,15 +394,12 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
             load_session_from_folder(session_dir, stack, state, screen)
 
     tree.itemDoubleClicked.connect(
-    lambda item, _: confirm_and_load_session(os.path.join(SESSIONS_DIR, item.text(0)))
-)
-
+        lambda item, _: confirm_and_load_session(os.path.join(SESSIONS_DIR, item.text(0)))
+    )
 
     refresh_session_tree()
     state["signals"].sessionsChanged.connect(refresh_session_tree)
 
-
-    
     # Button hooks
     select_files_btn.clicked.connect(select_files)
     select_folder_btn.clicked.connect(select_folder)
@@ -240,6 +410,7 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
 def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
     screen = QWidget()
     main_layout = QHBoxLayout(screen)
+    state["_wheel_filter"] = state.get("_wheel_filter") or WheelEventFilter()
     def determine_default_status(notes: str) -> str:
         n = str(notes).lower()
         if "comped" in n:
@@ -280,7 +451,9 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
     left_layout.addWidget(status_ready)
 
     club_selector = QComboBox()
+    
     left_layout.addWidget(club_selector)
+    club_selector.installEventFilter(state["_wheel_filter"])
 
     # Row for Create and Remove buttons
     action_row = QHBoxLayout()
@@ -497,6 +670,7 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
 def create_assign_status_screen(stack, state) -> QWidget:
     screen = QWidget()
     main_layout = QHBoxLayout(screen)
+    state["_wheel_filter"] = state.get("_wheel_filter") or WheelEventFilter()
 
     # Left layout
     left_layout = QVBoxLayout()
@@ -511,6 +685,8 @@ def create_assign_status_screen(stack, state) -> QWidget:
     left_layout.addWidget(lbl)
 
     file_dropdown = QComboBox()
+    file_dropdown.installEventFilter(state["_wheel_filter"])
+
     left_layout.addWidget(file_dropdown)
 
     scroll = QScrollArea()
@@ -1050,7 +1226,7 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
 # Tabs
 # ---------------------------------------------------------------------
 
-def create_program_flow_tab(state: Dict) -> QStackedWidget:
+def create_program_flow_tab(state: Dict, stack:QStackedWidget) -> QStackedWidget:
     stack = QStackedWidget()
     state["stack"] = stack
 
@@ -1088,13 +1264,15 @@ def create_flagged_sessions_tab(state: Dict) -> QWidget:
     edit_box = QGroupBox("Edit Notes and Unflag")
     edit_layout = QFormLayout(edit_box)
     name_dropdown = QComboBox()
+    abnote_input = QLineEdit()
     save_btn = QPushButton("Save Note")
     edit_layout.addRow("Select Name:", name_dropdown)
+    edit_layout.addRow("AnkleBreaker Note:", abnote_input)
     edit_layout.addWidget(save_btn)
     layout.addWidget(edit_box)
     edit_box.setEnabled(False)
-    abnote_input = QLineEdit()
-    edit_layout.addRow("AnkleBreaker Note:", abnote_input)
+
+
 
     selected_session = None
     selected_file = None
@@ -1390,10 +1568,12 @@ def create_payment_summary_screen(stack, state) -> QWidget:
     return screen
 
 
-def create_session_admin_tab(state: Dict) -> QWidget:
+def create_session_admin_tab(state: Dict, stack) -> QWidget:
     """Session-admin tab: pay/unpay/delete + live ‘current session’ banner, with club → date → session filtering."""
     scr = QWidget()
     layout = QVBoxLayout(scr)
+    state["_wheel_filter"] = state.get("_wheel_filter") or WheelEventFilter()
+
 
     header = QLabel("Session Admin")
     header.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1416,14 +1596,20 @@ def create_session_admin_tab(state: Dict) -> QWidget:
 
     # Dropdowns
     club_selector = QComboBox()
+    club_selector.installEventFilter(state["_wheel_filter"])
+
+
     layout.addWidget(QLabel("Select a club:"))
     layout.addWidget(club_selector)
 
     date_selector = QComboBox()
+    date_selector.installEventFilter(state["_wheel_filter"])
+
     layout.addWidget(QLabel("Select a date:"))
     layout.addWidget(date_selector)
 
     session_dropdown = QComboBox()
+    session_dropdown.installEventFilter(state["_wheel_filter"])
     layout.addWidget(QLabel("Select a session:"))
     layout.addWidget(session_dropdown)
 
@@ -1568,6 +1754,23 @@ def create_session_admin_tab(state: Dict) -> QWidget:
         club_selector.blockSignals(False)
         date_selector.blockSignals(False)
         session_dropdown.blockSignals(False)
+    # --- Add Load Session button ---
+    load_btn = QPushButton("Load Session")
+    def on_load_session_clicked():
+        folder = QFileDialog.getExistingDirectory(
+            scr,
+            "Select Session Folder",
+            str(BASE_DIR)  # Opens to AnkleBreakerData
+        )
+        if folder:
+            try:
+                load_session_from_folder(folder, stack, state, scr)
+                QMessageBox.information(scr, "Session Loaded", f"Session loaded from:\n{folder}")
+            except Exception as e:
+                QMessageBox.critical(scr, "Failed to Load", f"Could not load session:\n{e}")
+
+    row.addWidget(load_btn)
+    load_btn.clicked.connect(on_load_session_clicked)
 
     layout.addLayout(row)
 
@@ -1588,12 +1791,16 @@ def create_session_admin_tab(state: Dict) -> QWidget:
 def create_current_session_files_tab(state: Dict) -> QWidget:
     scr = QWidget()
     scr_layout = QVBoxLayout(scr)
+    state["_wheel_filter"] = state.get("_wheel_filter") or WheelEventFilter()
+
 
     header = QLabel("Files in Current Session")
     header.setAlignment(Qt.AlignmentFlag.AlignCenter)
     scr_layout.addWidget(header)
 
     file_dropdown = QComboBox()
+    file_dropdown.installEventFilter(state["_wheel_filter"])
+
     scr_layout.addWidget(file_dropdown)
 
     table = QTableWidget()
@@ -1692,14 +1899,22 @@ def create_current_session_files_tab(state: Dict) -> QWidget:
 def create_any_file_viewer_tab(state: Dict) -> QWidget:
     scr = QWidget()
     layout = QVBoxLayout(scr)
+    state["_wheel_filter"] = state.get("_wheel_filter") or WheelEventFilter()
+
 
     header = QLabel("Browse Any Session File")
     header.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(header)
 
     club_dropdown = QComboBox()
+    club_dropdown.installEventFilter(state["_wheel_filter"])
+
     date_dropdown = QComboBox()
+    date_dropdown.installEventFilter(state["_wheel_filter"])
+
     file_dropdown = QComboBox()
+    file_dropdown.installEventFilter(state["_wheel_filter"])
+
 
     layout.addWidget(QLabel("Select Club:"))
     layout.addWidget(club_dropdown)
@@ -2059,17 +2274,23 @@ def reset_session(stack: QStackedWidget, state: Dict, parent: QWidget):
 def create_main_window() -> QWidget:
     container = QWidget()
     layout = QVBoxLayout(container)
+
     # --- Menu Bar (like VS Code) ---
     menubar = QMenuBar()
-    load_menu = QMenu("Load", menubar)
+    load_menu = QMenu("AnkleBar", menubar)
 
-    load_folder_action = QAction("Load Folder", container)
+    state: Dict = {}
+    state["signals"] = AppSignals()
+    state["global_metadata"] = load_global_metadata()
+    state["_refresh_crud_banners"] = []
+
+    load_folder_action = QAction("Load Session", container)
     reset_session_action = QAction("Reset Session", container)
     reset_session_action.triggered.connect(lambda: reset_session(state["stack"], state, container))
     load_menu.addAction(reset_session_action)
 
     def open_folder_dialog():
-        folder = QFileDialog.getExistingDirectory(container, "Select Session Folder")
+        folder = QFileDialog.getExistingDirectory(container, "Select Session Folder", str(BASE_DIR))
         if not folder:
             return  # User cancelled from file dialog
 
@@ -2085,27 +2306,49 @@ def create_main_window() -> QWidget:
         if reply == QMessageBox.StandardButton.Ok:
             load_session_from_folder(folder, state["stack"], state, container)
         else:
-            # Reopen file dialog
             open_folder_dialog()
-
 
     load_folder_action.triggered.connect(open_folder_dialog)
     load_menu.addAction(load_folder_action)
 
+    # --- New action: Load Session from Graphic ---
+    load_graphical_action = QAction("Load Session from Graphic", container)
+
+    def launch_graphical_loader():
+        graphical_screen = create_graphical_loader_screen(state["stack"], state)
+
+        if state["stack"].indexOf(graphical_screen) == -1:
+            state["stack"].addWidget(graphical_screen)
+
+        # 👇 Ensure we're showing the Program tab before changing the stack screen
+        state["tabs"].setCurrentIndex(0)
+        state["stack"].setCurrentWidget(graphical_screen)
+
+
+    load_graphical_action.triggered.connect(launch_graphical_loader)
+    load_menu.addAction(load_graphical_action)
+
     menubar.addMenu(load_menu)
     layout.setMenuBar(menubar)
+    menubar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-
-    state: Dict = {}
-    state["signals"] = AppSignals()
-    state["global_metadata"] = load_global_metadata()
-
-    # --- Session banner at top ---
     session_label = QLabel()
     session_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(session_label)
 
-    state["_refresh_crud_banners"] = []
+
+    stack_wrapper = QWidget()
+    stack_layout = QVBoxLayout(stack_wrapper)
+    stack_layout.setContentsMargins(0, 0, 0, 0)
+
+    state["stack"] = QStackedWidget()
+    stack_layout.addWidget(state["stack"])
+
+    tabs = QTabWidget()
+    layout.addWidget(stack_wrapper)
+    layout.addWidget(tabs)
+
+    # --- Session banner at top ---
 
     def refresh_session_label():
         path = state.get("current_session")
@@ -2117,24 +2360,27 @@ def create_main_window() -> QWidget:
     state["_refresh_crud_banners"].append(refresh_session_label)
     refresh_session_label()
 
-
-
-
     # --- Tabs below ---
-    tabs = QTabWidget()
-    layout.addWidget(tabs)
 
-    program_tab = create_program_flow_tab(state)
+
+    program_tab = create_program_flow_tab(state, state["stack"])
+    def open_graphical_loader_screen():
+        scr = create_graphical_loader_screen(state["stack"], state)
+
+        if state["stack"].indexOf(scr) == -1:
+            state["stack"].addWidget(scr)
+
+        state["tabs"].setCurrentIndex(0)  # ensure 'Program' tab is visible
+        state["stack"].setCurrentWidget(scr)
+
+
     tabs.addTab(program_tab, "Program")
-    state["stack"] = program_tab  # ← capture and re-store
-
     tabs.addTab(create_flagged_sessions_tab(state), "Flagged")
-    tabs.addTab(create_session_admin_tab(state), "Session Admin")
+    tabs.addTab(create_session_admin_tab(state, state["stack"]), "Session Admin")
     tabs.addTab(create_current_session_files_tab(state), "Current Session Files")
     tabs.addTab(create_any_file_viewer_tab(state), "Browse All Files")
 
     state["tabs"] = tabs
- 
 
     # Hook up dynamic tab refresh
     def refresh_dynamic_tab(index):
