@@ -1116,28 +1116,6 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
     bulk_input.setPlaceholderText("Enter fee to apply to all")
     layout.addWidget(bulk_input)
 
-    def assign_all():
-        val = bulk_input.text()
-        if val:
-            for field in fee_inputs.values():
-                field.setText(val)
-
-    def reset_all():
-        bulk_input.clear()
-        for field in fee_inputs.values():
-            field.clear()
-        state["fee_schedule"].clear()
-
-    assign_all_btn = QPushButton("Assign All")
-    assign_all_btn.clicked.connect(assign_all)
-    layout.addWidget(assign_all_btn)
-
-    reset_all_btn = QPushButton("Reset All")
-    reset_all_btn.clicked.connect(reset_all)
-    layout.addWidget(reset_all_btn)
-
-    # ✅ Save Fee Schedule button
-    save_btn = QPushButton("Save Fee Schedule")
     def save_fee_schedule():
         prices = {}
         for fname in  [os.path.basename(p) for p in state.get("csv_paths", [])]:
@@ -1165,8 +1143,30 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
             QMessageBox.critical(screen, "Error", f"Failed to save fees:\n{e}")
         state["signals"].dataChanged.emit()
 
+    def assign_all():
+        val = bulk_input.text()
+        if val:
+            for field in fee_inputs.values():
+                field.setText(val)
+        save_fee_schedule()
 
+    def reset_all():
+        bulk_input.clear()
+        for field in fee_inputs.values():
+            field.clear()
+        state["fee_schedule"].clear()
+        save_fee_schedule()
 
+    assign_all_btn = QPushButton("Assign All")
+    assign_all_btn.clicked.connect(assign_all)
+    layout.addWidget(assign_all_btn)
+
+    reset_all_btn = QPushButton("Reset All")
+    reset_all_btn.clicked.connect(reset_all)
+    layout.addWidget(reset_all_btn)
+
+    # ✅ Save Fee Schedule button
+    save_btn = QPushButton("Save Fee Schedule")
     save_btn.clicked.connect(save_fee_schedule)
     layout.addWidget(save_btn)
 
@@ -1192,8 +1192,8 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
     next_btn.clicked.connect(save_and_continue)
     nav_row.addWidget(next_btn)
 
-
     layout.addLayout(nav_row)
+
     def refresh_file_dropdown():
         nonlocal file_form, fee_inputs
 
@@ -1215,11 +1215,9 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
             file_form.addRow(QLabel(fname), inp)
             fee_inputs[fname] = inp
 
-
     screen.refresh_file_dropdown = refresh_file_dropdown
 
     return screen
-
 
 
 # ---------------------------------------------------------------------
