@@ -57,3 +57,21 @@ Things to implement after the meeting on 6/23
 	Load session option in the AnkleBar via file explorer
 	Load session option in the AnkleBar via the file graphic of expansion
 8) Have load session graphic on welcome screen sort by most recently modified
+
+6/25
+1*) Assign All and Reset All also call Save Fee Schedule, maybe have it implmemented so when the user clicks off an individual input, have it call save
+2) For Current Session Files, have a button to click to view all (put it in the dropdown) , just have to add a column for file name
+3) Same for assign status screen, would have to add file name in button row graphic
+4) Move current session files tab to the right of program tab
+5) For Browse All files tab, instead of club then date then file, do club then session then file
+6) Load session from folder in session admin tab and anklebar need to open the sessions folder
+7) In all of the QTreeWidgets, have the top level include their paid status
+8) Apparently most recent session folder sorting does not work, make it work. 
+       Change label from Browse Existing Sessions to Recent Sessions
+9) In Session Admin folder dates are being duplicated, make it not so
+10) Add Delete Session to the AnkleBar, make it do an OpenFileDialog and have a confirmation
+11) Make RecycleBin button in the MenuBar
+       Delete Session
+       Restore Session
+       Empty RecycleBin
+       
