@@ -70,3 +70,53 @@ Things to implement after the meeting on 6/23
        Change label from Browse Existing Sessions to Recent Sessions
 9*) In Session Admin folder dates are being duplicated, make it not so
 10*) Add Delete Session to the AnkleBar, make it do an OpenFileDialog and have a confirmation
+
+6/27
+1*) Negatives in the Financial summary screen are still happening, fix manual logic
+2) Select a date in session admin?
+       Resolution, session admin tab not needed since the buttons are going in the past club session
+       In the Past Club Sessions page, after clicking into a club's files, have a dropdown for date filtering, include a view all button
+3*) Color scheme change for the red in current session files
+4*) Include names of currently selected files in the welcome screen, grey out the next button (I think this means on the create session tab)
+5*) Isolate next button from the rest of the buttons in the welcome screen
+6*) Remove the exit program button
+7*) Change "Browse existing sessions" label to "Browse recent sessions"
+8*) Change Graphical Session Loader to Past Club Sessions
+9*) In the GSL the Back to Welcome screen should be changed such that it brings you back to the screen you were just on
+10*) When a session is created lock the upload button until a session is reset or marked as completed (when that session is paid)
+       Should also unlock when Paid
+11) Be able to view the total similar to the paid/unpaid status, what total does he want? gross? tih cut? basic breakdown? Nolan thinks Club Cut but need to confirm with Travis
+12) GSL actually becomes session admin
+       Add session admin buttons to the Past Club Sessions, meaning mark as paid, unpaid, delete, and load
+13) Merge the load files and load folder button
+14*) Keep it such that when files are added, it overrides the current selection
+       When adding new files, create confirmation window letting the user know they are about to override the current selection
+              Be sure to include the current file names (and paths?) in the confirmation window message
+
+
+6/30
+1) Do incompletes from 6/27
+2) Grey out next button on create session screen until a session has bee ncrated
+
+7/1
+1*) Merge load files and load folder button
+       No way to be able to handle files or folders in one button, reverted it back
+2*) Grey out next button on create session screen until a session has been created 
+       The solution here may just be to remvoe the next button since after creating a session it just goes to the assign status screen
+3*) Session Admin features implemented into Past Club Sessions
+       Mark paid
+       Mark unpaid
+       Delete session
+       Load session isn't necessary since we're already loading it
+       Should already have single click selection done, just need to bind it to a state variable
+4*) Add total to the QTreeWidgets view, if no total say so, if not then include Club cut
+5*) Grey out next on fee schedule until all of the files have fee schedules assigned
+       Calling reset all should grey out the button
+6*) Fee schedule is not being remembered
+7) In flagged sessions, double clicking on a file name goes to browse all files
+       Currently cannot edit AnkleBreaker note, need to fix that
+8*) Just ran into a weird error where a file was flagged but the statuses of the people were not other, must Investigate
+9*) Upon deflagging a file, the view all option disappeared
+10*) Remove extra buttons from the welcome screen
+11*) Exiting the past club sessions needs to refresh the widgets, did not update browse recent sessions
+12*) After unflagging, in current session files a duplicate is being used

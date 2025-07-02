@@ -112,7 +112,7 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
     top_bar.setContentsMargins(0, 0, 0, 0)
 
     back_to_welcome_btn = QToolButton()
-    back_to_welcome_btn.setText("← Back to Welcome")
+    back_to_welcome_btn.setText("← Previous Screen")
     back_to_welcome_btn.setStyleSheet("""
         QToolButton {
             background-color: #5b7db1;
@@ -124,10 +124,11 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
             background-color: #486a9c;
         }
     """)
-    back_to_welcome_btn.clicked.connect(lambda: (
-        state["tabs"].setCurrentIndex(0),
-        state["stack"].setCurrentIndex(0)
-    ))
+    def go_back_to_previous():
+        previous = state.get("previous_screen_index", 0)
+        state["tabs"].setCurrentIndex(0)
+        state["stack"].setCurrentIndex(previous)
+    back_to_welcome_btn.clicked.connect(go_back_to_previous)
 
     top_bar.addWidget(back_to_welcome_btn)
     top_bar.addStretch()
@@ -164,6 +165,26 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
     tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
     tree.setVisible(False)
     layout.addWidget(tree)
+    # Selected session label
+    selected_session_label = QLabel("Selected Session: None")
+    selected_session_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    layout.addWidget(selected_session_label)
+
+    # Admin buttons layout
+    admin_btn_layout = QHBoxLayout()
+
+    mark_paid_btn = QPushButton("Mark Paid")
+    mark_unpaid_btn = QPushButton("Mark Unpaid")
+    delete_session_btn = QPushButton("Delete Session")
+
+    for btn in [mark_paid_btn, mark_unpaid_btn, delete_session_btn]:
+        btn.setEnabled(False)
+        admin_btn_layout.addWidget(btn)
+
+    layout.addLayout(admin_btn_layout)
+
+
+
 
     def extract_club_names():
         club_names = set()
@@ -218,39 +239,133 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
                 if not os.path.exists(meta_path) or not os.path.exists(csv_path):
                     continue
 
-                # Add paid/unpaid status to session label
                 try:
                     with open(meta_path, "r") as f:
                         metadata = json.load(f)
+
                     paid_status = metadata.get("paid", False)
                     status_str = "paid ✅" if paid_status else "unpaid ❌"
-                    display_name = f"{folder} — {status_str}"
+
+                    net = metadata.get("net_to_club", None)
+                    if isinstance(net, (int, float)):
+                        formatted_total = f"${net:.2f}"
+                    else:
+                        formatted_total = "No total yet"
+
+                    display_name = f"{folder} — {status_str} — total {formatted_total}"
+
                 except Exception as e:
                     print(f"[ERROR] Could not read metadata for {folder}: {e}")
                     display_name = folder
 
                 parent_item = QTreeWidgetItem([display_name])
+                parent_item.setData(0, Qt.ItemDataRole.UserRole, session_path)
                 for fname in sorted(os.listdir(csv_path)):
                     if fname.endswith(".csv"):
                         QTreeWidgetItem(parent_item, [fname])
                 tree.addTopLevelItem(parent_item)
 
-    def confirm_and_load_session(session_dir):
+    def on_tree_item_clicked(item: QTreeWidgetItem, _):
+        text = item.text(0)
+        if "—" in text:  # top-level session item
+            session_name = text.split(" — ")[0]
+            session_path = os.path.join(SESSIONS_DIR, session_name)
+            state["_selected_session_path"] = session_path
+            selected_session_label.setText(f"Selected Session: {session_name}")
+            for btn in [mark_paid_btn, mark_unpaid_btn, delete_session_btn]:
+                btn.setEnabled(True)
+        else:
+            state["_selected_session_path"] = None
+            for btn in [mark_paid_btn, mark_unpaid_btn, delete_session_btn]:
+                btn.setEnabled(False)
+
+    tree.itemClicked.connect(on_tree_item_clicked)
+
+    def confirm_and_load_session(item):
+        session_path = item.data(0, Qt.ItemDataRole.UserRole)
         reply = QMessageBox.question(
             scr,
             "Load Session",
-            f"Are you sure you want to load this session?\n\n{session_dir}",
+            f"Are you sure you want to load this session?\n\n{session_path}",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if reply == QMessageBox.StandardButton.Yes:
-            load_session_from_folder(session_dir, stack, state, scr)
+            update_last_opened_metadata(session_path)
+            load_session_from_folder(session_path, stack, state, scr)
 
     tree.itemDoubleClicked.connect(
-        lambda item, _: confirm_and_load_session(os.path.join(SESSIONS_DIR, item.text(0)))
+        lambda item, _: confirm_and_load_session(item)
     )
+    def on_session_selected(item, _):
+        session_path = item.data(0, Qt.ItemDataRole.UserRole)
+        if not session_path:
+            return
+        selected_session_label.setText(f"Selected Session: {os.path.basename(session_path)}")
+        mark_paid_btn.setEnabled(True)
+        mark_unpaid_btn.setEnabled(True)
+        delete_session_btn.setEnabled(True)
+        selected_session_label.session_path = session_path  # Store path for later
+
+    tree.itemClicked.connect(on_session_selected)
+    def update_paid_status(path, status: bool):
+        try:
+            meta_path = os.path.join(path, "metadata", "metadata.json")
+            with open(meta_path, "r") as f:
+                metadata = json.load(f)
+            metadata["paid"] = status
+            with open(meta_path, "w") as f:
+                json.dump(metadata, f, indent=4)
+            QMessageBox.information(scr, "Success", f"Session marked as {'paid' if status else 'unpaid'}.")
+            show_sessions_for_club(header.text().split("Sessions for ")[-1])
+        except Exception as e:
+            QMessageBox.critical(scr, "Error", f"Failed to update paid status: {e}")
+        state["signals"].sessionsChanged.emit()
+
+
+    def delete_session(path):
+        confirm = QMessageBox.question(
+            scr,
+            "Delete Session",
+            f"Are you sure you want to permanently delete:\n\n{os.path.basename(path)}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if confirm == QMessageBox.StandardButton.Yes:
+            try:
+                print(f"[DEBUG] Attempting to delete: {path}")
+                shutil.rmtree(path)
+
+                # ✅ If it's the current session, clear state
+                if str(path) == str(state.get("current_session")):
+                    state["current_session"] = None
+                    state["csv_paths"] = []
+                    state["dataframes"] = {}
+                    state["status_counts"] = {}
+                    state["fee_schedule"] = {}
+
+                    # 🔍 Dynamically find main_window to update the label
+                    parent = scr
+                    while parent is not None:
+                        if hasattr(parent, "current_session_label"):
+                            parent.current_session_label.setText("No current session")
+                            break
+                        parent = parent.parent()
+
+                QMessageBox.information(scr, "Deleted", "Session deleted successfully.")
+                selected_session_label.setText("Selected Session: None")
+                for btn in [mark_paid_btn, mark_unpaid_btn, delete_session_btn]:
+                    btn.setEnabled(False)
+                state["_selected_session_path"] = None
+                state["signals"].sessionsChanged.emit()
+                show_sessions_for_club(header.text().split("Sessions for ")[-1])
+            except Exception as e:
+                print(f"[ERROR] Deletion failed for path: {path}")
+                QMessageBox.critical(scr, "Error", f"Could not delete session: {e}")
+
+    mark_paid_btn.clicked.connect(lambda: update_paid_status(selected_session_label.session_path, True))
+    mark_unpaid_btn.clicked.connect(lambda: update_paid_status(selected_session_label.session_path, False))
+    delete_session_btn.clicked.connect(lambda: delete_session(selected_session_label.session_path))
 
     back_btn.clicked.connect(show_club_buttons)
-
     show_club_buttons()
     return scr
 
@@ -261,6 +376,20 @@ class WheelEventFilter(QObject):
         return super().eventFilter(obj, event)
 
 
+def update_last_opened_metadata(session_path: str):
+        meta_path = os.path.join(session_path, "metadata", "metadata.json")
+        try:
+            if os.path.exists(meta_path):
+                with open(meta_path, "r") as f:
+                    metadata = json.load(f)
+            else:
+                metadata = {}
+            metadata["last_opened"] = datetime.now().isoformat()
+            os.makedirs(os.path.dirname(meta_path), exist_ok=True)
+            with open(meta_path, "w") as f:
+                json.dump(metadata, f, indent=2)
+        except Exception as e:
+            print(f"[ERROR] Could not update last_opened for {session_path}: {e}")
 
 # ---------------------------------------------------------------------
 # Screens for Program Flow Tab
@@ -274,33 +403,47 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
     screen = QWidget()
     layout = QVBoxLayout(screen)
 
+
+
+    top_row = QHBoxLayout()
+
     label = QLabel("Welcome to the AnkleBreaker")
-    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    layout.addWidget(label)
+    label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+
+    next_btn = QPushButton("Next")
+    next_btn.setEnabled(False)
+    next_btn.setFixedWidth(150)
+
+    top_row.addWidget(label)
+    top_row.addStretch()
+    top_row.addWidget(next_btn)
+
+    layout.addLayout(top_row)
+
 
     file_label = QLabel("No files selected.")
     layout.addWidget(file_label)
+
+    file_names_label = QLabel("")
+    file_names_label.setWordWrap(True)
+    layout.addWidget(file_names_label)
 
     select_files_btn = QPushButton("Select CSV Files")
     select_folder_btn = QPushButton("Select Folder")
     layout.addWidget(select_files_btn)
     layout.addWidget(select_folder_btn)
+    state["_upload_files_btn"] = select_files_btn
+    state["_upload_folder_btn"] = select_folder_btn
 
-    next_btn = QPushButton("Next")
-    next_btn.setEnabled(False)
-    layout.addWidget(next_btn)
 
     # --- ADDED BUTTON ---
-    graphical_loader_btn = QPushButton("Graphical Session Loader")
+    graphical_loader_btn = QPushButton("Past Club Sessions")
     layout.addWidget(graphical_loader_btn)
-
-    exit_btn = QPushButton("Exit Program")
-    exit_btn.clicked.connect(QApplication.quit)
-    layout.addWidget(exit_btn)
 
     next_btn.clicked.connect(lambda: stack.setCurrentIndex(1))
 
     def open_graphical_loader():
+        state["previous_screen_index"] = stack.currentIndex()
         scr = create_graphical_loader_screen(stack, state)
         stack.addWidget(scr)
         stack.setCurrentWidget(scr)
@@ -354,10 +497,13 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
         state["dataframes"] = dfs
         state["df"] = pd.concat(dfs, ignore_index=True) if dfs else None
 
-        msg = f"Loaded {len(dfs)} files"
+        file_names = [os.path.basename(p) for p in paths]
+        msg = f"Loaded {len(dfs)} file(s)"
         if errors:
             msg += f" ( {len(errors)} failed )"
         file_label.setText(msg)
+        file_names_label.setText("Files:\n" + "\n".join(file_names))
+
         next_btn.setEnabled(len(dfs) > 0)
 
     def select_files():
@@ -382,8 +528,10 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
     tree = QTreeWidget()
     tree.setHeaderHidden(True)
     tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-    layout.addWidget(QLabel("Browse Existing Sessions:"))
+    layout.addWidget(QLabel("Browse Recent Sessions:"))
     layout.addWidget(tree)
+
+
 
     def refresh_session_tree():
         tree.clear()
@@ -419,7 +567,9 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
                 paid_status = False
 
             status_text = "paid ✅" if paid_status else "unpaid ❌"
-            display_name = f"{session_name} — {status_text}"
+            net_total = metadata.get("net_to_club", "No total yet")
+            display_name = f"{session_name} — {status_text} — Total: {net_total}"
+
             parent_item = QTreeWidgetItem([display_name])
 
             if not os.path.exists(csv_path):
@@ -476,8 +626,6 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
             return "manual"
         elif "not over capacity: register" in n:
             return "regular"
-        elif "no show" in n:
-            return "no_show"
         else:
             return "other"
 
@@ -520,8 +668,10 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
     left_layout.addLayout(action_row)
 
     next_btn = QPushButton("Next")
+    next_btn.setEnabled(False)  # <--- disabled until session is created
     next_btn.clicked.connect(lambda: stack.setCurrentIndex(2))
     left_layout.addWidget(next_btn)
+    state["_create_session_next_btn"] = next_btn  # Optional: store for later reference
 
     back_btn = QPushButton("Back")
     back_btn.clicked.connect(lambda: stack.setCurrentIndex(0))
@@ -661,12 +811,20 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
             fn()
         state["signals"].sessionsChanged.emit()
         state["signals"].dataChanged.emit()
+        state["session_locked"] = True
+        # Disable upload buttons once session is locked
+        if state.get("_upload_files_btn"):
+            state["_upload_files_btn"].setEnabled(False)
+        if state.get("_upload_folder_btn"):
+            state["_upload_folder_btn"].setEnabled(False)
 
-        # ✅ Rebuild and navigate to assign screen
+
+        # Rebuild assign screen but DO NOT switch to it
         assign_screen = create_assign_status_screen(stack, state)
         stack.removeWidget(stack.widget(2))
         stack.insertWidget(2, assign_screen)
-        stack.setCurrentIndex(2)
+        next_btn.setEnabled(True)  # ✅ Enable manual progression after session is created
+
 
     create_btn.clicked.connect(show_confirmation_dialog)
 
@@ -717,842 +875,6 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
     main_layout.addWidget(right_group, stretch=1)
 
     return screen
-
-#This is the third scrren that the user sees and is the first step after a session is created
-#A user cannot backtrack past this screen
-def create_assign_status_screen(stack, state) -> QWidget:
-    screen = QWidget()
-    main_layout = QHBoxLayout(screen)
-    state["_wheel_filter"] = state.get("_wheel_filter") or WheelEventFilter()
-
-    # Left layout
-    left_layout = QVBoxLayout()
-    lbl = QLabel()
-    screen.session_label = lbl  # Save a reference so we can change it later
-    # Better logic: only look at csv_paths
-    is_flagged = any("-flag.csv" in os.path.basename(p) for p in state.get("csv_paths", []))
-
-    lbl.setText(f"Status Assignment {'🚩 FLAGGED' if is_flagged else ''}")
-
-    lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    left_layout.addWidget(lbl)
-
-    file_dropdown = QComboBox()
-    file_dropdown.installEventFilter(state["_wheel_filter"])
-
-    left_layout.addWidget(file_dropdown)
-
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    scroll_content = QWidget()
-    scroll_layout = QVBoxLayout(scroll_content)
-    scroll.setWidget(scroll_content)
-    left_layout.addWidget(scroll)
-
-    # Right layout (Other display)
-    right_layout = QVBoxLayout()
-    other_display = QTextEdit()
-    other_display.setReadOnly(True)
-    right_layout.addWidget(QLabel("People with status 'Other' (by file):"))
-    right_layout.addWidget(other_display)
-
-    # Get current session folder
-    current_session = state.get("current_session")
-    csv_paths = state.get("csv_paths", [])
-    dataframes_dict = state.get("dataframes", {})
-
-    # NEW: Try using state values if already populated
-    if csv_paths and isinstance(dataframes_dict, dict) and all(p in dataframes_dict for p in csv_paths):
-        session_csvs = [os.path.basename(p) for p in csv_paths]
-        dataframes = [dataframes_dict[p] for p in csv_paths]
-    else:
-        # Fallback to loading from disk
-        session_csvs = []
-        dataframes = []
-        if current_session and os.path.exists(current_session):
-            csv_dir = os.path.join(current_session, "csv")
-        else:
-            folders = [
-                os.path.join(SESSIONS_DIR, f)
-                for f in os.listdir(SESSIONS_DIR)
-                if os.path.isdir(os.path.join(SESSIONS_DIR, f))
-            ]
-            latest_session = max(folders, key=os.path.getctime, default=None)
-            csv_dir = os.path.join(latest_session, "csv") if latest_session else None
-
-        if csv_dir and os.path.exists(csv_dir):
-            for fname in sorted(os.listdir(csv_dir)):
-                if fname.endswith(".csv"):
-                    path = os.path.join(csv_dir, fname)
-                    try:
-                        df = pd.read_csv(path)
-                        if "default_status" in df.columns:
-                            if "current_status" not in df.columns:
-                                df["current_status"] = df["default_status"]
-                            dataframes.append(df)
-                            session_csvs.append(fname)
-                            csv_paths.append(path)
-                            dataframes_dict[path] = df
-                    except Exception as e:
-                        print(f"Error reading {path}: {e}")
-        state["csv_paths"] = csv_paths
-        state["dataframes"] = dataframes_dict
-
-    print("DEBUG CSV Paths:", csv_paths)
-    print("DEBUG DataFrames:", [list(df.columns) for df in dataframes])
-
-    # Now continue with original function logic...
-    state["status_counts"] = {}
-    def propagate_file_rename(old_path: str, new_path: str, state: Dict, stack: QStackedWidget):
-                    print("[DEBUG] Final csv_paths in state:", state["csv_paths"])
-                    print("[DEBUG] Final fee_schedule keys:", state.get("fee_schedule", {}).keys())
-                    print("[DEBUG] Final status_counts keys:", state.get("status_counts", {}).keys())
-
-                    old_fname = os.path.basename(old_path)
-                    new_fname = os.path.basename(new_path)
-
-                    # Update csv_paths
-                    state["csv_paths"] = [new_path if p == old_path else p for p in state["csv_paths"]]
-
-                    # Update dataframes
-                    if old_path in state["dataframes"]:
-                        state["dataframes"][new_path] = state["dataframes"].pop(old_path)
-
-                    # Update status_counts
-                    if "status_counts" in state and old_fname in state["status_counts"]:
-                        state["status_counts"][new_fname] = state["status_counts"].pop(old_fname)
-
-                    # Update fee_schedule
-                    if "fee_schedule" in state and old_fname in state["fee_schedule"]:
-                        state["fee_schedule"][new_fname] = state["fee_schedule"].pop(old_fname)
-
-                    # Refresh screens
-                    # Refresh screens
-                    for screen_index in [2, 3, 4]:
-                        widget = stack.widget(screen_index)
-
-                        if screen_index == 2 and hasattr(widget, "refresh_file_dropdown"):
-                            widget.refresh_file_dropdown()
-                            print("[DEBUG] Refreshed assign status screen dropdown and label")
-                        elif screen_index == 3:
-                            new_screen = create_fee_schedule_screen(stack, state)
-                            stack.removeWidget(widget)
-                            stack.insertWidget(3, new_screen)
-                            print("[DEBUG] Recreated fee schedule screen at index 3 after rename")
-                        elif screen_index == 4:
-                            summary_screen = create_payment_summary_screen(stack, state)
-                            stack.removeWidget(stack.widget(4))
-                            stack.insertWidget(4, summary_screen)
-                            print("[DEBUG] Recreated payment summary screen at index 4 after rename")
-                        else:
-                            print(f"[WARNING] Screen at index {screen_index} does not support refresh.")
-
-                    # Emit signal to trigger any reactive UI
-                    state["signals"].dataChanged.emit()
-
-    def update_flag_state_for_file(csv_path, state, stack):
-                    state["refresh_current_session_label"]()
-                    df = state["dataframes"].get(csv_path)
-                    if df is None:
-                        print(f"[WARNING] No dataframe found for: {csv_path}")
-                        return
-
-                    # Determine if any rows have 'other' status
-                    still_flagged = (df["current_status"] == "other").any()
-                    is_flagged_file = "-flag.csv" in os.path.basename(csv_path)
-
-                    # Construct new file name
-                    if is_flagged_file:
-                        unflagged_path = re.sub(r"-flag(?=\.csv$)", "", csv_path)
-                    else:
-                        flagged_path = re.sub(r"(?=\.csv$)", "-flag", csv_path)
-
-                    session_path = os.path.dirname(os.path.dirname(csv_path))
-                    meta_path = os.path.join(session_path, "metadata", "metadata.json")
-
-                    # Load metadata
-                    if os.path.exists(meta_path):
-                        with open(meta_path, "r") as f:
-                            metadata = json.load(f)
-                    else:
-                        metadata = {}
-
-                    old_basename = os.path.basename(csv_path)
-
-                    if is_flagged_file and not still_flagged:
-                        # → Should be unflagged
-                        unflagged_path = re.sub(r"-flag(?=\.csv$)", "", csv_path)
-                        new_basename = os.path.basename(unflagged_path)
-
-                        # --- Update state keys ---
-                        if csv_path in state["csv_paths"]:
-                            state["csv_paths"].remove(csv_path)
-                            state["csv_paths"].append(unflagged_path)
-
-                        if csv_path in state["dataframes"]:
-                            state["dataframes"][unflagged_path] = state["dataframes"].pop(csv_path)
-
-                        if csv_path in state["status_counts"]:
-                            state["status_counts"][unflagged_path] = state["status_counts"].pop(csv_path)
-
-                        if csv_path in state.get("fee_schedule", {}):
-                            state["fee_schedule"][unflagged_path] = state["fee_schedule"].pop(csv_path)
-
-
-                        if os.path.exists(csv_path):
-                            os.rename(csv_path, unflagged_path)
-                            print(f"[RENAME] {csv_path} → {unflagged_path}")
-                        else:
-                            print(f"[WARNING] Could not find file to rename: {csv_path} (maybe already renamed?)")
-
-                        # 🧠 Still update state even if rename didn't happen
-                        if csv_path in state["csv_paths"]:
-                            state["csv_paths"].remove(csv_path)
-                            state["csv_paths"].append(unflagged_path)
-
-                        if csv_path in state["dataframes"]:
-                            state["dataframes"][unflagged_path] = state["dataframes"].pop(csv_path)
-
-                        if csv_path in state["status_counts"]:
-                            state["status_counts"][unflagged_path] = state["status_counts"].pop(csv_path)
-
-                        old_basename = os.path.basename(csv_path)
-                        new_basename = os.path.basename(unflagged_path)
-
-                        if old_basename in state.get("fee_schedule", {}):
-                            state["fee_schedule"][new_basename] = state["fee_schedule"].pop(old_basename)
-                        propagate_file_rename(csv_path, unflagged_path, state, stack)
-                        print("[FIXED] Renamed state references from flagged → unflagged")
-
-                        # --- Update metadata ---
-                        fees = metadata.get("fees", {})
-                        if old_basename in fees:
-                            fees[new_basename] = fees.pop(old_basename)
-
-                        if "flagged_files" in metadata:
-                            if old_basename in metadata["flagged_files"]:
-                                metadata["flagged_files"].remove(old_basename)
-
-                        # If no flagged files remain, unflag the whole session
-                        metadata["flagged"] = any("-flag.csv" in f for f in state["csv_paths"])
-                        # If the session folder name changed (e.g., from -flag to not), update state["current_session"]
-                        original_session = state["current_session"]
-                        if "-flag" in original_session and not metadata["flagged"]:
-                            new_session = original_session.replace("-flag", "")
-                            if os.path.exists(original_session) and not os.path.exists(new_session):
-                                os.rename(original_session, new_session)
-                                state["current_session"] = new_session
-
-                        # Only refresh label once flag status is known
-                        refresh_func = state.get("refresh_current_session_label")
-                        if callable(refresh_func):
-                            refresh_func()
-
-
-
-                        # Ensure the metadata folder exists
-                        os.makedirs(os.path.dirname(meta_path), exist_ok=True)
-
-                        with open(meta_path, "w") as f:
-                            json.dump(metadata, f, indent=2)
-
-                        # Refresh screens and dropdowns
-                        propagate_file_rename(csv_path, unflagged_path, state, stack)
-
-                    elif not is_flagged_file and still_flagged:
-                        # → Should be flagged (optional if you support re-flagging)
-                        # Refresh the assign status screen label if present
-                        assign_screen = stack.widget(2)
-                        if hasattr(assign_screen, "session_label"):
-                            assign_screen.session_label.setText("Status Assignment 🚩 FLAGGED")
-
-                        flagged_path = re.sub(r"(?=\.csv$)", "-flag", csv_path)
-                        new_basename = os.path.basename(flagged_path)
-
-                        # Same logic in reverse if needed
-                        print("[INFO] File needs to be flagged again, but re-flagging not implemented here.")
-
-                    else:
-                        print("[INFO] No rename needed.")
-
-
-    def update_other_display():
-        content = ""
-        for fname, df in zip(session_csvs, dataframes):
-            others = df[df["current_status"] == "other"]["Name"].tolist()
-            if others:
-                content += f"{fname}:\n"
-                for name in others:
-                    content += f"  {name}\n"
-        other_display.setText(content.strip())
-
-    def update_status_counts():
-        counts_per_file = {}
-        for fname, df in zip(session_csvs, dataframes):
-            counts = df["current_status"].value_counts().to_dict()
-            counts_per_file[fname] = counts
-        state["status_counts"] = counts_per_file
-
-    def update_person_buttons(df_index):
-        while scroll_layout.count():
-            child = scroll_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
-
-        selected_file = file_dropdown.currentText()
-
-        if selected_file == "View All":
-            from collections import defaultdict
-            grouped_rows = defaultdict(list)
-
-            for path in state["csv_paths"]:
-                df = state["dataframes"][path].copy()
-                basename = os.path.basename(path)
-                df["__source_file__"] = basename
-                grouped_rows[basename].extend(df.to_dict("records"))
-
-            for fname in sorted(grouped_rows):
-                header_label = QLabel(f"======== {fname} ========")
-                header_label.setStyleSheet("font-size: 16pt; font-weight: bold; padding: 6px;")
-                scroll_layout.addWidget(header_label)
-
-                for row in grouped_rows[fname]:
-                    person_box = QVBoxLayout()
-                    person_label = QLabel(f"{row['Name']} — Default: {row['default_status']}")
-                    person_box.addWidget(person_label)
-
-                    button_row = QHBoxLayout()
-                    statuses = ["regular", "manual", "comped", "refund", "waitlist", "other"]
-                    button_group = QButtonGroup(screen)
-                    button_group.setExclusive(True)
-
-                    for status in statuses:
-                        btn = QPushButton(status.replace("_", " ").capitalize())
-                        btn.setCheckable(True)
-                        if row["current_status"] == status:
-                            btn.setChecked(True)
-                        
-                        def make_handler(status=status, person=row):
-                            def handler():
-                                for path in state["csv_paths"]:
-                                    df = state["dataframes"][path]
-                                    match = df[(df["Name"] == person["Name"]) & (df["Email"] == person["Email"])]
-                                    if not match.empty:
-                                        df.at[match.index[0], "current_status"] = status
-                                        update_other_display()
-                                        update_status_counts()
-                                        update_flag_state_for_file(path, state, stack)
-                                        state["signals"].dataChanged.emit()
-                                        break
-                            return handler
-
-                        btn.clicked.connect(make_handler())
-                        button_group.addButton(btn)
-                        button_row.addWidget(btn)
-
-                    person_box.addLayout(button_row)
-                    wrapper = QFrame()
-                    wrapper.setLayout(person_box)
-                    wrapper.setFrameShape(QFrame.Shape.Box)
-                    scroll_layout.addWidget(wrapper)
-
-            update_status_counts()
-            return
-
-        # Your existing per-file logic remains unchanged below:
-        df = dataframes[df_index]
-        for idx, row in df.iterrows():
-            def make_click_handler(status=status, row_idx=idx, df=df):
-                            def handler():
-                                selected_file = file_dropdown.currentText()
-                                try:
-                                    df_index = session_csvs.index(selected_file)
-                                except ValueError:
-                                    print(f"[ERROR] Could not find selected file {selected_file} in session_csvs")
-                                    return
-
-                                path = state["csv_paths"][df_index]
-                                df.at[row_idx, "current_status"] = status
-                                print(f"[DEBUG] Set status for {row['Name']} to {status}")
-
-                                update_other_display()
-                                update_status_counts()
-                                update_flag_state_for_file(path, state, stack)
-                                state["signals"].dataChanged.emit()
-                            return handler
-
-            person_box = QVBoxLayout()
-            person_label = QLabel(f"{row['Name']} — Default: {row['default_status']}")
-            person_box.addWidget(person_label)
-
-            button_row = QHBoxLayout()
-            statuses = ["regular", "manual", "comped",  "refund", "waitlist", "other"]
-            button_group = QButtonGroup(screen)
-            button_group.setExclusive(True)
-
-        for status in statuses:
-            btn = QPushButton(status.capitalize())
-            btn.setCheckable(True)
-            if row["current_status"] == status:
-                btn.setChecked(True)
-
-            for status in statuses:
-                btn = QPushButton(status.capitalize())
-                btn.setCheckable(True)
-                if row["current_status"] == status:
-                    btn.setChecked(True)
-                
-                
-                
-                
-
-                btn.clicked.connect(make_click_handler())
-
-                button_group.addButton(btn)
-                button_row.addWidget(btn)
-
-            person_box.addLayout(button_row)
-            wrapper = QFrame()
-            wrapper.setLayout(person_box)
-            wrapper.setFrameShape(QFrame.Shape.Box)
-            scroll_layout.addWidget(wrapper)
-
-        update_status_counts()
-
-    def save_all_dataframes():
-        for i, path in enumerate(state["csv_paths"]):
-            df = state["dataframes"].get(path)
-            if df is None:
-                print(f"[WARNING] No DataFrame found for path: {path}")
-                continue
-
-            folder = os.path.dirname(path)
-            try:
-                os.makedirs(folder, exist_ok=True)
-                df.to_csv(path, index=False)
-                print(f"[SAVED] {path} with statuses:\n{df[['Name', 'current_status']]}")
-
-            except OSError as e:
-                if "non-existent directory" in str(e) and "-flag" in folder:
-                    unflagged_folder = folder.replace("-flag", "")
-                    new_path = os.path.join(unflagged_folder, os.path.basename(path))
-                    os.makedirs(unflagged_folder, exist_ok=True)
-                    df.to_csv(new_path, index=False)
-
-                    # Remove old flagged file to prevent duplication
-                    if os.path.exists(path):
-                        os.remove(path)
-
-                    # Update the path in state
-                    state["csv_paths"][i] = new_path
-                    state["dataframes"][new_path] = df
-                    del state["dataframes"][path]
-                else:
-                    raise
-
-    file_dropdown.addItem("View All")
-    file_dropdown.addItems(session_csvs)
-    file_dropdown.currentIndexChanged.connect(update_person_buttons)
-    if dataframes:
-        update_person_buttons(0)
-        update_other_display()
-
-    def go_to_fee_schedule():
-        save_all_dataframes()
-        fee_screen = create_fee_schedule_screen(stack, state)
-        stack.removeWidget(stack.widget(3))
-        stack.insertWidget(3, fee_screen)
-        stack.setCurrentIndex(3)
-
-    next_btn = QPushButton("Next")
-    next_btn.clicked.connect(go_to_fee_schedule)
-    left_layout.addWidget(next_btn)
-
-    main_layout.addLayout(left_layout, stretch=3)
-    main_layout.addLayout(right_layout, stretch=1)
-    def refresh_file_dropdown():
-        current_index = file_dropdown.currentIndex()
-        file_dropdown.clear()
-        session_csvs[:] = [os.path.basename(p) for p in state["csv_paths"]]
-        dataframes[:] = [state["dataframes"][p] for p in state["csv_paths"]]
-        file_dropdown.addItems(session_csvs)
-        if 0 <= current_index < len(session_csvs):
-            file_dropdown.setCurrentIndex(current_index)
-            update_person_buttons(current_index)
-        else:
-            update_person_buttons(0)
-        update_other_display()
-        # Update label after potential unflagging
-        session_dir = state.get("current_session", "")
-        is_flagged = "-flag" in session_dir or any("-flag.csv" in p for p in state.get("csv_paths", []))
-        screen.session_label.setText(f"Status Assignment {'🚩 FLAGGED' if is_flagged else ''}")
-
-    screen.refresh_file_dropdown = refresh_file_dropdown
-
-    return screen
-
-#This is the fourth screen that the user sees
-def create_fee_schedule_screen(stack, state) -> QWidget:
-    screen = QWidget()
-    layout = QVBoxLayout(screen)
-
-    layout.addWidget(QLabel("Fee Schedule"))
-
-    fee_inputs: Dict[str, QLineEdit] = {}
-    state["fee_schedule"] = {}
-
-    validator = QIntValidator()
-    validator.setBottom(1)
-
-    csv_paths = state.get("csv_paths", [])
-
-    # Load any previously saved fees
-    saved_prices = {}
-    session_dir = state.get("current_session")
-    if session_dir:
-        metadata_path = os.path.join(session_dir, "metadata", "metadata.json")
-        if os.path.exists(metadata_path):
-            try:
-                with open(metadata_path, "r") as f:
-                    meta = json.load(f)
-                    saved_prices = state.get("fee_schedule", {})
-            except:
-                pass
-
-    file_form = QFormLayout()
-    if not [os.path.basename(p) for p in state.get("csv_paths", [])]:
-        layout.addWidget(QLabel("⚠️ No CSV files found for this session."))
-    else:
-        for fname in [os.path.basename(p) for p in state.get("csv_paths", [])]:
-            inp = QLineEdit()
-            inp.setValidator(validator)
-            inp.setPlaceholderText("Enter cost")
-            if fname in saved_prices:
-                inp.setText(str(saved_prices[fname]))
-            file_form.addRow(QLabel(fname), inp)
-            fee_inputs[fname] = inp
-
-    layout.addLayout(file_form)
-
-    layout.addWidget(QLabel("Bulk Assign to All:"))
-    bulk_input = QLineEdit()
-    bulk_input.setValidator(validator)
-    bulk_input.setPlaceholderText("Enter fee to apply to all")
-    layout.addWidget(bulk_input)
-
-    def save_fee_schedule():
-        prices = {}
-        for fname in  [os.path.basename(p) for p in state.get("csv_paths", [])]:
-            text = fee_inputs[fname].text()
-            if text.isdigit():
-                prices[fname] = int(text)
-
-        if not session_dir:
-            QMessageBox.warning(screen, "No Session", "No active session to save fees to.")
-            return
-
-        metadata_path = os.path.join(session_dir, "metadata", "metadata.json")
-        if not os.path.exists(metadata_path):
-            QMessageBox.warning(screen, "Missing Metadata", "Metadata file not found in current session.")
-            return
-
-        try:
-            with open(metadata_path, "r") as f:
-                meta = json.load(f)
-            meta["fees"] = prices
-            with open(metadata_path, "w") as f:
-                json.dump(meta, f, indent=4)
-            QMessageBox.information(screen, "Saved", "Fee schedule saved to metadata.")
-        except Exception as e:
-            QMessageBox.critical(screen, "Error", f"Failed to save fees:\n{e}")
-        state["signals"].dataChanged.emit()
-
-    def assign_all():
-        val = bulk_input.text()
-        if val:
-            for field in fee_inputs.values():
-                field.setText(val)
-        save_fee_schedule()
-
-    def reset_all():
-        bulk_input.clear()
-        for field in fee_inputs.values():
-            field.clear()
-        state["fee_schedule"].clear()
-        save_fee_schedule()
-
-    assign_all_btn = QPushButton("Assign All")
-    assign_all_btn.clicked.connect(assign_all)
-    layout.addWidget(assign_all_btn)
-
-    reset_all_btn = QPushButton("Reset All")
-    reset_all_btn.clicked.connect(reset_all)
-    layout.addWidget(reset_all_btn)
-
-    # ✅ Save Fee Schedule button
-    save_btn = QPushButton("Save Fee Schedule")
-    save_btn.clicked.connect(save_fee_schedule)
-    layout.addWidget(save_btn)
-
-    # Navigation
-    nav_row = QHBoxLayout()
-
-    back_btn = QPushButton("Back")
-    back_btn.clicked.connect(lambda: stack.setCurrentIndex(2))
-    nav_row.addWidget(back_btn)
-
-    def save_and_continue():
-        for fname in [os.path.basename(p) for p in state.get("csv_paths", [])]:
-            text = fee_inputs[fname].text()
-            if text.isdigit():
-                state["fee_schedule"][fname] = int(text)
-
-        summary_screen = create_payment_summary_screen(stack, state)
-        stack.removeWidget(stack.widget(4))
-        stack.insertWidget(4, summary_screen)
-        stack.setCurrentIndex(4)
-
-    next_btn = QPushButton("Next")
-    next_btn.clicked.connect(save_and_continue)
-    nav_row.addWidget(next_btn)
-
-    layout.addLayout(nav_row)
-
-    def refresh_file_dropdown():
-        nonlocal file_form, fee_inputs
-
-        # Update file_basenames from state
-        file_basenames = [os.path.basename(p) for p in state.get("csv_paths", [])]
-
-        # Clear and rebuild form
-        for i in reversed(range(file_form.rowCount())):
-            file_form.removeRow(i)
-        fee_inputs.clear()
-
-        for fname in file_basenames:
-            inp = QLineEdit()
-            inp.setValidator(validator)
-            inp.setPlaceholderText("Enter cost")
-            saved_price = state.get("fee_schedule", {}).get(fname)
-            if saved_price is not None:
-                inp.setText(str(saved_price))
-            file_form.addRow(QLabel(fname), inp)
-            fee_inputs[fname] = inp
-
-    screen.refresh_file_dropdown = refresh_file_dropdown
-
-    return screen
-
-
-# ---------------------------------------------------------------------
-# Tabs
-# ---------------------------------------------------------------------
-
-def create_program_flow_tab(state: Dict, stack:QStackedWidget) -> QStackedWidget:
-    stack = QStackedWidget()
-    state["stack"] = stack
-
-    stack.addWidget(create_welcome_screen(stack, state))             # 0
-    stack.addWidget(create_session_creation_screen(stack, state))    # 1
-    stack.addWidget(create_assign_status_screen(stack, state))       # 2
-    stack.addWidget(QWidget())  # Placeholder for fee screen          # 3
-    stack.addWidget(QWidget())  # Placeholder for payment summary     # 4
-
-    return stack
-
-
-def create_flagged_sessions_tab(state: Dict) -> QWidget:
-    from PyQt6.QtCore import pyqtSignal, QObject
-
-    class FlaggedTabSignals(QObject):
-        fileDoubleClicked = pyqtSignal(str)
-
-    flagged_signals = FlaggedTabSignals()
-    state["flagged_tab_signals"] = flagged_signals
-
-    scr = QWidget()
-    layout = QVBoxLayout(scr)
-
-    header = QLabel("Flagged Sessions Overview")
-    header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    layout.addWidget(header)
-
-    tree = QTreeWidget()
-    tree.setHeaderHidden(True)
-    tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-    layout.addWidget(tree)
-
-    # Edit & Unflag UI
-    edit_box = QGroupBox("Edit Notes and Unflag")
-    edit_layout = QFormLayout(edit_box)
-    name_dropdown = QComboBox()
-    abnote_input = QLineEdit()
-    save_btn = QPushButton("Save Note")
-    edit_layout.addRow("Select Name:", name_dropdown)
-    edit_layout.addRow("AnkleBreaker Note:", abnote_input)
-    edit_layout.addWidget(save_btn)
-    layout.addWidget(edit_box)
-    edit_box.setEnabled(False)
-
-
-
-    selected_session = None
-    selected_file = None
-    df = None
-
-    def determine_default_status(notes: str) -> str:
-        n = str(notes).lower()
-        if "comped" in n:
-            return "comped"
-        elif "no capacity, and room on the waiting list : register" in n:
-            return "waitlist"
-        elif "refund" in n:
-            return "refund"
-        elif "manually confirmed by" in n:
-            return "manual"
-        elif "not over capacity: register" in n:
-            return "regular"
-        elif "no show" in n:
-            return "no_show"
-        else:
-            return "other"
-
-    def refresh_flagged():
-        tree.clear()
-        sessions_path = SESSIONS_DIR
-        if not os.path.exists(sessions_path):
-            return
-        for session_name in sorted(os.listdir(sessions_path)):
-            session_path = os.path.join(sessions_path, session_name)
-            metadata_path = os.path.join(session_path, "metadata", "metadata.json")
-            if not os.path.exists(metadata_path):
-                continue
-            try:
-                with open(metadata_path, "r") as f:
-                    metadata = json.load(f)
-                if metadata.get("flagged"):
-                    # 🔍 Add paid/unpaid label with checkmark/X
-                    paid_status = metadata.get("paid", False)
-                    status_str = "paid ✅" if paid_status else "unpaid ❌"
-                    display_name = f"{session_name} — {status_str}"
-
-                    parent_item = QTreeWidgetItem([display_name])
-                    flagged_files = metadata.get("flagged_files", [])
-                    for file_name in flagged_files:
-                        file_item = QTreeWidgetItem(parent_item, [file_name])
-                        full_path = os.path.join(session_path, "csv", file_name)
-                        file_item.setData(0, Qt.ItemDataRole.UserRole, full_path)
-                    tree.addTopLevelItem(parent_item)
-            except Exception as e:
-                print(f"Error reading {metadata_path}: {e}")
-
-
-    def on_tree_item_selected(item):
-        nonlocal selected_session, selected_file, df
-        parent = item.parent()
-        if parent is None:
-            return
-        selected_session = parent.text(0)
-        selected_file = item.text(0)
-        session_dir = os.path.join(SESSIONS_DIR, selected_session)
-        full_path = os.path.join(session_dir, "csv", selected_file)
-        if not os.path.exists(full_path):
-            return
-        try:
-            df = pd.read_csv(full_path)
-            if "Name" in df.columns and "Notes" in df.columns:
-                name_dropdown.clear()
-                name_dropdown.addItems(df["Name"].tolist())
-                edit_box.setEnabled(True)
-        except Exception as e:
-            print(f"[ERROR] Failed to load {full_path}: {e}")
-            df = None
-            edit_box.setEnabled(False)
-
-    def on_tree_item_double_clicked(item: QTreeWidgetItem, column: int):
-        parent = item.parent()
-        if parent is None:
-            return  # Only fire on files, not session headers
-        file_path = item.data(0, Qt.ItemDataRole.UserRole)
-        if file_path and os.path.exists(file_path):
-            state["tabs"].setCurrentIndex(4)  # 👈 switch to Browse tab
-            flagged_signals.fileDoubleClicked.emit(file_path)
-
-
-    def on_name_selected(name):
-        if df is None:
-            return
-        matches = df[df["Name"] == name]
-        if matches.empty:
-            abnote_input.clear()
-            return
-        note = matches["Notes"].values[0]
-        abnote = matches["AnkleBreaker notes"].values[0] if "AnkleBreaker notes" in matches.columns else ""
-        abnote_input.setText(str(abnote))
-
-    def on_save_note():
-        nonlocal selected_session, selected_file, df
-        if df is None:
-            return
-        name = name_dropdown.currentText()
-        if not name:
-            return
-        if "AnkleBreaker notes" not in df.columns:
-            df["AnkleBreaker notes"] = ""
-        df.loc[df["Name"] == name, "AnkleBreaker notes"] = abnote_input.text()
-
-        df["default_status"] = df["Notes"].apply(determine_default_status)
-
-        session_path = os.path.join(SESSIONS_DIR, selected_session)
-        csv_dir = os.path.join(session_path, "csv")
-        old_path = os.path.join(csv_dir, selected_file)
-        df.to_csv(old_path, index=False)
-
-        should_flag = (df["default_status"] == "other").any()
-        base_name = selected_file.replace("-flag.csv", ".csv") if selected_file.endswith("-flag.csv") else selected_file
-        new_file_name = base_name.replace(".csv", "-flag.csv") if should_flag else base_name
-        new_path = os.path.join(csv_dir, new_file_name)
-
-        if old_path != new_path:
-            os.rename(old_path, new_path)
-
-        meta_path = os.path.join(session_path, "metadata", "metadata.json")
-        if os.path.exists(meta_path):
-            with open(meta_path, "r") as f:
-                meta = json.load(f)
-            all_files = os.listdir(csv_dir)
-            flagged_files = [f for f in all_files if f.endswith("-flag.csv")]
-            meta["flagged_files"] = flagged_files
-            meta["flagged"] = bool(flagged_files)
-
-            current_name = os.path.basename(session_path)
-            new_session_name = current_name.replace("-flag", "") if not flagged_files else (
-                current_name if "-flag" in current_name else f"{current_name}-flag"
-            )
-            if new_session_name != current_name:
-                new_session_path = os.path.join(SESSIONS_DIR, new_session_name)
-                os.rename(session_path, new_session_path)
-                selected_session = new_session_name
-                session_path = new_session_path
-                state["current_session"] = new_session_path
-
-            with open(os.path.join(SESSIONS_DIR, selected_session, "metadata", "metadata.json"), "w") as f:
-                json.dump(meta, f, indent=4)
-
-        state["signals"].sessionsChanged.emit()
-        state["signals"].dataChanged.emit()
-
-        refresh_flagged()
-
-    tree.itemClicked.connect(on_tree_item_selected)
-    tree.itemDoubleClicked.connect(on_tree_item_double_clicked)
-    name_dropdown.currentTextChanged.connect(on_name_selected)
-    save_btn.clicked.connect(on_save_note)
-
-    state["signals"].sessionsChanged.connect(refresh_flagged)
-    refresh_flagged()
-
-    return scr
 
 def create_payment_summary_screen(stack, state) -> QWidget:
     print("[DEBUG] Status counts keys:", state.get("status_counts", {}).keys())
@@ -1646,9 +968,8 @@ def create_payment_summary_screen(stack, state) -> QWidget:
             regular = counts.get("regular", 0)
             manual = counts.get("manual", 0)
             refund = counts.get("refund", 0)
-            no_show = counts.get("no_show", 0)  # if you added this status
 
-            gross = regular * price
+            gross = (regular + manual) * price
             trackithub = (regular + manual) * price * 0.10
 
             paypal = 0.0
@@ -1676,13 +997,12 @@ def create_payment_summary_screen(stack, state) -> QWidget:
 
     # Build it once on screen creation
     build_payment_summary()
+
     def refresh_summary():
         new_screen = create_payment_summary_screen(stack, state)
         stack.removeWidget(stack.widget(4))
         stack.insertWidget(4, new_screen)
         stack.setCurrentIndex(4)
-
-
 
     screen.refresh_summary = refresh_summary
 
@@ -1692,236 +1012,965 @@ def create_payment_summary_screen(stack, state) -> QWidget:
     back_btn.clicked.connect(lambda: stack.setCurrentIndex(3))
     nav_row.addWidget(back_btn)
     layout.addLayout(nav_row)
-    
+
     return screen
 
 
-def create_session_admin_tab(state: Dict, stack) -> QWidget:
-    """Session-admin tab: pay/unpay/delete + live ‘current session’ banner, with club → date → session filtering."""
-    scr = QWidget()
-    layout = QVBoxLayout(scr)
+#This is the third scrren that the user sees and is the first step after a session is created
+#A user cannot backtrack past this screen
+def create_assign_status_screen(stack, state) -> QWidget:
+    screen = QWidget()
+    main_layout = QHBoxLayout(screen)
     state["_wheel_filter"] = state.get("_wheel_filter") or WheelEventFilter()
 
+    # Left layout
+    left_layout = QVBoxLayout()
+    lbl = QLabel()
+    screen.session_label = lbl
+    is_flagged = any("-flag.csv" in os.path.basename(p) for p in state.get("csv_paths", []))
+    lbl.setText(f"Status Assignment {'FLAGGED' if is_flagged else ''}")
+    lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    left_layout.addWidget(lbl)
 
-    header = QLabel("Session Admin")
+    file_dropdown = QComboBox()
+    file_dropdown.installEventFilter(state["_wheel_filter"])
+    left_layout.addWidget(file_dropdown)
+
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+
+    scroll_content = QWidget()
+    scroll_layout = QVBoxLayout(scroll_content)
+    scroll_content.setLayout(scroll_layout)
+
+    # 👇 Key line for consistency
+    scroll_content.setMinimumWidth(760)  # or whatever matches View All layout width
+
+    scroll.setWidget(scroll_content)
+    left_layout.addWidget(scroll)
+
+
+    # Right layout (Other display)
+    right_layout = QVBoxLayout()
+    other_display = QTextEdit()
+    other_display.setReadOnly(True)
+    right_layout.addWidget(QLabel("People with status 'Other' (by file):"))
+    right_layout.addWidget(other_display)
+    # Get current session folder
+    current_session = state.get("current_session")
+    csv_paths = state.get("csv_paths", [])
+    dataframes_dict = state.get("dataframes", {})
+
+    # NEW: Try using state values if already populated
+    if csv_paths and isinstance(dataframes_dict, dict) and all(p in dataframes_dict for p in csv_paths):
+        session_csvs = [os.path.basename(p) for p in csv_paths]
+        dataframes = [dataframes_dict[p] for p in csv_paths]
+    else:
+        # Fallback to loading from disk
+        session_csvs = []
+        dataframes = []
+        if current_session and os.path.exists(current_session):
+            csv_dir = os.path.join(current_session, "csv")
+        else:
+            folders = [
+                os.path.join(SESSIONS_DIR, f)
+                for f in os.listdir(SESSIONS_DIR)
+                if os.path.isdir(os.path.join(SESSIONS_DIR, f))
+            ]
+            latest_session = max(folders, key=os.path.getctime, default=None)
+            csv_dir = os.path.join(latest_session, "csv") if latest_session else None
+
+        if csv_dir and os.path.exists(csv_dir):
+            for fname in sorted(os.listdir(csv_dir)):
+                if fname.endswith(".csv"):
+                    path = os.path.join(csv_dir, fname)
+                    try:
+                        df = pd.read_csv(path)
+                        if "default_status" in df.columns:
+                            if "current_status" not in df.columns:
+                                df["current_status"] = df["default_status"]
+                            dataframes.append(df)
+                            session_csvs.append(fname)
+                            csv_paths.append(path)
+                            dataframes_dict[path] = df
+                    except Exception as e:
+                        print(f"Error reading {path}: {e}")
+        state["csv_paths"] = csv_paths
+        state["dataframes"] = dataframes_dict
+
+    print("DEBUG CSV Paths:", csv_paths)
+    print("DEBUG DataFrames:", [list(df.columns) for df in dataframes])
+
+    # Now continue with original function logic...
+    state["status_counts"] = {}
+    def propagate_file_rename(old_path: str, new_path: str, state: Dict, stack: QStackedWidget):
+                    print("[DEBUG] Final csv_paths in state:", state["csv_paths"])
+                    print("[DEBUG] Final fee_schedule keys:", state.get("fee_schedule", {}).keys())
+                    print("[DEBUG] Final status_counts keys:", state.get("status_counts", {}).keys())
+
+                    old_fname = os.path.basename(old_path)
+                    new_fname = os.path.basename(new_path)
+
+                    # Update csv_paths
+                    state["csv_paths"] = [new_path if p == old_path else p for p in state["csv_paths"]]
+
+                    # Update dataframes
+                    if old_path in state["dataframes"]:
+                        state["dataframes"][new_path] = state["dataframes"].pop(old_path)
+
+                    # Update status_counts
+                    if "status_counts" in state and old_fname in state["status_counts"]:
+                        state["status_counts"][new_fname] = state["status_counts"].pop(old_fname)
+
+                    # Update fee_schedule
+                    if "fee_schedule" in state and old_fname in state["fee_schedule"]:
+                        state["fee_schedule"][new_fname] = state["fee_schedule"].pop(old_fname)
+
+                    # Refresh screens
+                    # Refresh screens
+                    for screen_index in [2, 3, 4]:
+                        widget = stack.widget(screen_index)
+
+                        if screen_index == 2 and hasattr(widget, "refresh_file_dropdown"):
+                            widget.refresh_file_dropdown()
+                            print("[DEBUG] Refreshed assign status screen dropdown and label")
+                        elif screen_index == 3:
+                            new_screen = create_fee_schedule_screen(stack, state)
+                            stack.removeWidget(widget)
+                            stack.insertWidget(3, new_screen)
+                            print("[DEBUG] Recreated fee schedule screen at index 3 after rename")
+                        elif screen_index == 4:
+                            summary_screen = create_payment_summary_screen(stack, state)
+                            stack.removeWidget(stack.widget(4))
+                            stack.insertWidget(4, summary_screen)
+                            print("[DEBUG] Recreated payment summary screen at index 4 after rename")
+                        else:
+                            print(f"[WARNING] Screen at index {screen_index} does not support refresh.")
+
+                    # Emit signal to trigger any reactive UI
+                    state["signals"].sessionsChanged.emit()  # ✅ triggers QTreeWidgets
+                    state["signals"].dataChanged.emit()
+
+    def update_flag_state_for_file(csv_path, state, stack):
+        df = state["dataframes"].get(csv_path)
+        if df is None:
+            print(f"[WARNING] No dataframe found for: {csv_path}")
+            return
+
+        still_flagged = (df["current_status"] == "other").any()
+        is_flagged_file = "-flag.csv" in os.path.basename(csv_path)
+
+        session_path = os.path.dirname(os.path.dirname(csv_path))
+        meta_path = os.path.join(session_path, "metadata", "metadata.json")
+        original_session = state.get("current_session")
+
+        if os.path.exists(meta_path):
+            with open(meta_path, "r") as f:
+                metadata = json.load(f)
+        else:
+            metadata = {}
+
+        old_basename = os.path.basename(csv_path)
+
+        if is_flagged_file and not still_flagged:
+            # ------------------- UNFLAGGING CASE -------------------
+
+            # Calculate new filename
+            unflagged_path = re.sub(r"-flag(?=\.csv$)", "", csv_path)
+            new_basename = os.path.basename(unflagged_path)
+
+            # Update in-memory state references
+            for key in ["csv_paths", "dataframes", "status_counts", "fee_schedule"]:
+                container = state.get(key, {})
+                if isinstance(container, list):
+                    if csv_path in container:
+                        container.remove(csv_path)
+                        container.append(unflagged_path)
+                elif isinstance(container, dict):
+                    if csv_path in container:
+                        container[unflagged_path] = container.pop(csv_path)
+
+            # Rename file
+            if os.path.exists(csv_path):
+                try:
+                    os.rename(csv_path, unflagged_path)
+                    print(f"[RENAME] {csv_path} → {unflagged_path}")
+                except Exception as e:
+                    print(f"[ERROR] Failed to rename file: {e}")
+
+                # ✅ Clean up any leftover -flag.csv files in same folder
+                flagged_dir = os.path.dirname(unflagged_path)
+                for fname in os.listdir(flagged_dir):
+                    if fname.endswith("-flag.csv"):
+                        full_flag_path = os.path.join(flagged_dir, fname)
+                        if full_flag_path not in state["csv_paths"]:
+                            try:
+                                os.remove(full_flag_path)
+                                print(f"[CLEANUP] Removed leftover flagged file: {full_flag_path}")
+                            except Exception as e:
+                                print(f"[WARNING] Could not remove flagged file {full_flag_path}: {e}")
+            else:
+                print(f"[WARNING] Could not find file to rename: {csv_path}")
+
+            # Update metadata fee keys and flagged files
+            fees = metadata.get("fees", {})
+            if old_basename in fees:
+                fees[new_basename] = fees.pop(old_basename)
+
+            if "flagged_files" in metadata and old_basename in metadata["flagged_files"]:
+                metadata["flagged_files"].remove(old_basename)
+
+            # Check if session is still flagged
+            metadata["flagged"] = any("-flag.csv" in os.path.basename(p) for p in state["csv_paths"])
+
+            # ------------------- SESSION FOLDER RENAME -------------------
+            if "-flag" in original_session and not metadata["flagged"]:
+                new_session_path = original_session.replace("-flag", "")
+                if os.path.exists(original_session) and not os.path.exists(new_session_path):
+                    os.rename(original_session, new_session_path)
+                    state["current_session"] = new_session_path
+
+                    # Rewrite all session-relative paths
+                    state["csv_paths"] = [
+                        p.replace(original_session, new_session_path)
+                        for p in state["csv_paths"]
+                    ]
+                    state["dataframes"] = {
+                        p.replace(original_session, new_session_path): df
+                        for p, df in state["dataframes"].items()
+                    }
+                    state["status_counts"] = {
+                        os.path.basename(p.replace(original_session, new_session_path)): val
+                        for p, val in state["status_counts"].items()
+                    }
+                    state["fee_schedule"] = {
+                        os.path.basename(p.replace(original_session, new_session_path)): price
+                        for p, price in state["fee_schedule"].items()
+                    }
+
+                    # Update metadata fees to use new basenames
+                    metadata["fees"] = {
+                        os.path.basename(k.replace(original_session, new_session_path)): v
+                        for k, v in fees.items()
+                    }
+
+            # Save updated metadata
+            updated_meta_path = os.path.join(state["current_session"], "metadata", "metadata.json")
+            os.makedirs(os.path.dirname(updated_meta_path), exist_ok=True)
+            with open(updated_meta_path, "w") as f:
+                json.dump(metadata, f, indent=2)
+
+            # UI + State refresh
+            state["signals"].sessionsChanged.emit()
+            state["signals"].dataChanged.emit()
+
+            # Step 5: Force-refresh the Browse All Files tab if it's available
+            tab_widget = state.get("tabs")
+            browse_tab_index = 3  # Browse All Files tab is at index 3
+
+            if tab_widget:
+                browse_tab = tab_widget.widget(browse_tab_index)
+                if hasattr(browse_tab, "refresh"):
+                    browse_tab.refresh()
+                    print("[REFRESH] Browse All Files tab manually refreshed.")
+
+            propagate_file_rename(csv_path, unflagged_path, state, stack)
+
+            if callable(state.get("refresh_current_session_label")):
+                state["refresh_current_session_label"]()
+
+            # Clean up old folder if name changed
+            if original_session != state["current_session"] and os.path.exists(original_session):
+                try:
+                    shutil.rmtree(original_session)
+                    print(f"[CLEANUP] Deleted old flagged folder: {original_session}")
+                except Exception as e:
+                    print(f"[ERROR] Failed to delete old flagged folder: {e}")
+
+        elif not is_flagged_file and still_flagged:
+            assign_screen = stack.widget(2)
+            if hasattr(assign_screen, "session_label"):
+                assign_screen.session_label.setText("Status Assignment FLAGGED")
+            print("[INFO] File needs to be flagged again, but re-flagging not implemented here.")
+        else:
+            print("[INFO] No rename needed.")
+
+    def update_other_display():
+        content = ""
+        for fname, df in zip(session_csvs, dataframes):
+            others = df[df["current_status"] == "other"]["Name"].tolist()
+            if others:
+                content += f"{fname}:\n"
+                for name in others:
+                    content += f"  {name}\n"
+        other_display.setText(content.strip())
+
+    def update_status_counts():
+        counts_per_file = {}
+        for fname, df in zip(session_csvs, dataframes):
+            counts = df["current_status"].value_counts().to_dict()
+            counts_per_file[fname] = counts
+        state["status_counts"] = counts_per_file
+
+    def update_person_buttons(df_index):
+        while scroll_layout.count():
+            child = scroll_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+        selected_file = file_dropdown.currentText()
+
+        if selected_file == "View All":
+            from collections import defaultdict
+            grouped_rows = defaultdict(list)
+
+            for path in state["csv_paths"]:
+                df = state["dataframes"][path].copy()
+                basename = os.path.basename(path)
+                df["__source_file__"] = basename
+                grouped_rows[basename].extend(df.to_dict("records"))
+
+            for fname in sorted(grouped_rows):
+                header_label = QLabel(f"======== {fname} ========")
+                header_label.setStyleSheet("font-size: 16pt; font-weight: bold; padding: 6px;")
+                scroll_layout.addWidget(header_label)
+
+                for row in grouped_rows[fname]:
+                    person_box = QVBoxLayout()
+                    person_label = QLabel(f"{row['Name']} — Default: {row['default_status']}")
+                    person_box.addWidget(person_label)
+
+                    button_row = QHBoxLayout()
+                    statuses = ["regular", "manual", "comped", "refund", "waitlist", "other"]
+                    button_group = QButtonGroup(screen)
+                    button_group.setExclusive(True)
+
+                    for status in statuses:
+                        btn = QPushButton(status.replace("_", " ").capitalize())
+                        btn.setCheckable(True)
+                        btn.setFixedWidth(90)
+                        if row["current_status"] == status:
+                            btn.setChecked(True)
+
+                        def make_handler(status=status, person=row):
+                            def handler():
+                                for path in state["csv_paths"]:
+                                    df = state["dataframes"][path]
+                                    match = df[(df["Name"] == person["Name"]) & (df["Email"] == person["Email"])]
+                                    if not match.empty:
+                                        df.at[match.index[0], "current_status"] = status
+                                        update_other_display()
+                                        update_status_counts()
+                                        update_flag_state_for_file(path, state, stack)
+                                        state["signals"].dataChanged.emit()
+                                        break
+                            return handler
+
+                        btn.clicked.connect(make_handler())
+                        button_group.addButton(btn)
+                        button_row.addWidget(btn)
+
+                    button_row_widget = QWidget()
+                    button_row_widget.setLayout(button_row)
+                    button_row_widget.setMaximumWidth(600)
+                    person_box.addWidget(button_row_widget)
+
+                    wrapper = QFrame()
+                    wrapper.setLayout(person_box)
+                    wrapper.setFrameShape(QFrame.Shape.Box)
+                    scroll_layout.addWidget(wrapper)
+
+            update_status_counts()
+            return
+
+        # Single-file view
+        if df_index == 0 or df_index > len(dataframes):
+            print(f"[WARNING] Invalid df_index={df_index} for dataframes list of size {len(dataframes)}")
+            return
+
+        try:
+            path = state["csv_paths"][df_index - 1]
+            df = state["dataframes"][path]
+        except IndexError:
+            print(f"[ERROR] df_index={df_index} is out of range for csv_paths: {state['csv_paths']}")
+            return
+        except KeyError:
+            print(f"[ERROR] No dataframe found for path: {path}")
+            return
+
+
+        for idx, row in df.iterrows():
+            person_box = QVBoxLayout()
+            person_label = QLabel(f"{row['Name']} — Default: {row['default_status']}")
+            person_box.addWidget(person_label)
+
+            button_row = QHBoxLayout()
+            statuses = ["regular", "manual", "comped", "refund", "waitlist", "other"]
+            button_group = QButtonGroup(screen)
+            button_group.setExclusive(True)
+
+            for status in statuses:
+                btn = QPushButton(status.capitalize())
+                btn.setCheckable(True)
+                if row["current_status"] == status:
+                    btn.setChecked(True)
+
+                def make_click_handler(status=status, row_idx=idx, df=df):
+                    def handler():
+                        selected_file = file_dropdown.currentText()
+                        try:
+                            df_index = session_csvs.index(selected_file)
+                        except ValueError:
+                            print(f"[ERROR] Could not find selected file {selected_file} in session_csvs")
+                            return
+
+                        path = state["csv_paths"][df_index]
+                        df.at[row_idx, "current_status"] = status
+                        update_other_display()
+                        update_status_counts()
+                        update_flag_state_for_file(path, state, stack)
+                        state["signals"].dataChanged.emit()
+                    return handler
+
+                btn.clicked.connect(make_click_handler())
+                button_group.addButton(btn)
+                button_row.addWidget(btn)
+
+            # Wrap button row just like in "View All"
+            button_row_widget = QWidget()
+            button_row_widget.setLayout(button_row)
+            button_row_widget.setMaximumWidth(600)  # Match View All
+            person_box.addWidget(button_row_widget)
+
+            wrapper = QFrame()
+            wrapper.setLayout(person_box)
+            wrapper.setFrameShape(QFrame.Shape.Box)
+            scroll_layout.addWidget(wrapper)
+
+        update_status_counts()
+
+    def save_all_dataframes():
+        for i, path in enumerate(state["csv_paths"]):
+            df = state["dataframes"].get(path)
+            if df is None:
+                print(f"[WARNING] No DataFrame found for path: {path}")
+                continue
+
+            folder = os.path.dirname(path)
+            try:
+                os.makedirs(folder, exist_ok=True)
+                df.to_csv(path, index=False)
+                print(f"[SAVED] {path} with statuses:\n{df[['Name', 'current_status']]}")
+
+            except OSError as e:
+                if "non-existent directory" in str(e) and "-flag" in folder:
+                    unflagged_folder = folder.replace("-flag", "")
+                    new_path = os.path.join(unflagged_folder, os.path.basename(path))
+                    os.makedirs(unflagged_folder, exist_ok=True)
+                    df.to_csv(new_path, index=False)
+
+                    # Remove old flagged file to prevent duplication
+                    if os.path.exists(path):
+                        os.remove(path)
+
+                    # Update the path in state
+                    state["csv_paths"][i] = new_path
+                    state["dataframes"][new_path] = df
+                    del state["dataframes"][path]
+                else:
+                    raise
+
+    file_dropdown.addItem("View All")
+    file_dropdown.addItems(session_csvs)
+    file_dropdown.currentIndexChanged.connect(update_person_buttons)
+    if dataframes:
+        update_person_buttons(0)
+        update_other_display()
+
+    def go_to_fee_schedule():
+        save_all_dataframes()
+        fee_screen = create_fee_schedule_screen(stack, state)
+        stack.removeWidget(stack.widget(3))
+        stack.insertWidget(3, fee_screen)
+        stack.setCurrentIndex(3)
+
+    next_btn = QPushButton("Next")
+    next_btn.clicked.connect(go_to_fee_schedule)
+    left_layout.addWidget(next_btn)
+
+    main_layout.addLayout(left_layout, stretch=3)
+    main_layout.addLayout(right_layout, stretch=1)
+    def refresh_file_dropdown():
+        current_index = file_dropdown.currentIndex()
+        file_dropdown.clear()
+        file_dropdown.addItem("View All")
+        session_csvs[:] = [os.path.basename(p) for p in state["csv_paths"]]
+        dataframes[:] = [state["dataframes"][p] for p in state["csv_paths"]]
+        file_dropdown.addItems(session_csvs)
+        selected_text = file_dropdown.itemText(current_index)
+        if selected_text == "View All":
+            file_dropdown.setCurrentText("View All")
+            update_person_buttons(0)
+        elif selected_text in session_csvs:
+            index = session_csvs.index(selected_text) + 1  # +1 for View All offset
+            file_dropdown.setCurrentIndex(index)
+            update_person_buttons(index)
+        else:
+            print(f"[WARNING] Unexpected dropdown text: {selected_text}")
+            update_person_buttons(0)
+
+        update_other_display()
+        # Update label after potential unflagging
+        session_dir = state.get("current_session", "")
+        is_flagged = "-flag" in session_dir or any("-flag.csv" in p for p in state.get("csv_paths", []))
+        screen.session_label.setText(f"Status Assignment {'FLAGGED' if is_flagged else ''}")
+        # Force dropdown reset and rerender for View All consistency
+        current_text = file_dropdown.currentText()
+        if current_text == "View All":
+            file_dropdown.setCurrentText("View All")
+            update_person_buttons(0)
+
+
+    screen.refresh_file_dropdown = refresh_file_dropdown
+
+    return screen
+
+#This is the fourth screen that the user sees
+def create_fee_schedule_screen(stack, state) -> QWidget:
+    screen = QWidget()
+    layout = QVBoxLayout(screen)
+
+    layout.addWidget(QLabel("Fee Schedule"))
+
+    fee_inputs: Dict[str, QLineEdit] = {}
+    state["fee_schedule"] = {}
+
+    validator = QIntValidator()
+    validator.setBottom(1)
+
+    csv_paths = state.get("csv_paths", [])
+    saved_prices = {}
+    nav_row = QHBoxLayout()
+
+    back_btn = QPushButton("Back")
+    back_btn.clicked.connect(lambda: stack.setCurrentIndex(2))
+    nav_row.addWidget(back_btn)
+
+    next_btn = QPushButton("Next")
+    next_btn.setEnabled(False)
+    def save_and_continue():
+        for fname, inp in fee_inputs.items():
+            text = inp.text()
+            if text.isdigit():
+                state["fee_schedule"][fname] = int(text)
+
+        # Update metadata again before going forward
+        save_fee_schedule()
+
+        summary_screen = create_payment_summary_screen(stack, state)
+        stack.removeWidget(stack.widget(4))
+        stack.insertWidget(4, summary_screen)
+        stack.setCurrentIndex(4)
+
+
+    session_dir = state.get("current_session")
+    if session_dir:
+        metadata_path = os.path.join(session_dir, "metadata", "metadata.json")
+        if os.path.exists(metadata_path):
+            try:
+                with open(metadata_path, "r") as f:
+                    meta = json.load(f)
+                    saved_prices = meta.get("fees", {})
+            except:
+                pass
+
+    file_form = QFormLayout()
+    layout.addLayout(file_form)
+    def update_next_button_state():
+        all_filled = all(inp.text().isdigit() for inp in fee_inputs.values())
+        next_btn.setEnabled(all_filled)
+
+
+    if not csv_paths:
+        layout.addWidget(QLabel("⚠️ No CSV files found for this session."))
+    else:
+        for path in csv_paths:
+            fname = os.path.basename(path)
+            inp = QLineEdit()
+            inp.setValidator(validator)
+            inp.setPlaceholderText("Enter cost")
+            if fname in saved_prices:
+                inp.setText(str(saved_prices[fname]))
+            file_form.addRow(QLabel(fname), inp)
+            fee_inputs[fname] = inp
+            inp.textChanged.connect(update_next_button_state)
+        update_next_button_state()
+
+            
+
+    layout.addWidget(QLabel("Bulk Assign to All:"))
+    bulk_input = QLineEdit()
+    bulk_input.setValidator(validator)
+    bulk_input.setPlaceholderText("Enter fee to apply to all")
+    layout.addWidget(bulk_input)
+
+    # --- Logic to enable/disable Next button ---
+
+
+    def save_fee_schedule():
+        prices = {}
+        for fname, inp in fee_inputs.items():
+            text = inp.text()
+            if text.isdigit():
+                prices[fname] = int(text)
+
+        if not session_dir:
+            QMessageBox.warning(screen, "No Session", "No active session to save fees to.")
+            return
+
+        metadata_path = os.path.join(session_dir, "metadata", "metadata.json")
+        if not os.path.exists(metadata_path):
+            QMessageBox.warning(screen, "Missing Metadata", "Metadata file not found in current session.")
+            return
+
+        try:
+            # Calculate net_to_club using same logic as in payment summary
+            total_net = 0.0
+            for path in state.get("csv_paths", []):
+                fname = os.path.basename(path)
+                price = prices.get(fname, 0)
+                df = state["dataframes"].get(path)
+                if df is None:
+                    continue
+
+                regular = (df["current_status"] == "regular").sum()
+                manual  = (df["current_status"] == "manual").sum()
+
+                gross = (regular + manual) * price
+                tih_cut = gross * 0.10
+
+                paypal = 0.0
+                for _ in range(regular):
+                    if price <= 10:
+                        paypal += price * 0.05 + 0.09
+                    else:
+                        paypal += price * 0.0349 + 0.49
+
+                net = gross - tih_cut - paypal
+                total_net += net
+
+            # Save metadata
+            with open(metadata_path, "r") as f:
+                meta = json.load(f)
+            meta["fees"] = prices
+            meta["net_to_club"] = round(total_net, 2)
+
+            with open(metadata_path, "w") as f:
+                json.dump(meta, f, indent=4)
+
+            QMessageBox.information(screen, "Saved", "Fee schedule and net-to-club saved to metadata.")
+            state["signals"].sessionsChanged.emit()
+
+        except Exception as e:
+            QMessageBox.critical(screen, "Error", f"Failed to save fees:\n{e}")
+
+        state["signals"].dataChanged.emit()
+
+    def assign_all():
+        val = bulk_input.text()
+        if val:
+            for field in fee_inputs.values():
+                field.setText(val)
+        save_fee_schedule()
+        update_next_button_state()
+
+    def reset_all():
+        bulk_input.clear()
+        for field in fee_inputs.values():
+            field.clear()
+        state["fee_schedule"].clear()
+        save_fee_schedule()
+        update_next_button_state()
+
+    assign_all_btn = QPushButton("Assign All")
+    assign_all_btn.clicked.connect(assign_all)
+    layout.addWidget(assign_all_btn)
+
+    reset_all_btn = QPushButton("Reset All")
+    reset_all_btn.clicked.connect(reset_all)
+    layout.addWidget(reset_all_btn)
+
+    save_btn = QPushButton("Save Fee Schedule")
+    save_btn.clicked.connect(save_fee_schedule)
+    layout.addWidget(save_btn)
+
+    # Navigation
+    
+    next_btn.clicked.connect(save_and_continue)
+    nav_row.addWidget(next_btn)
+
+    layout.addLayout(nav_row)
+
+    # Refresh method (if used elsewhere)
+    def refresh_file_dropdown():
+        nonlocal file_form, fee_inputs
+        file_form = QFormLayout()
+        file_basenames = [os.path.basename(p) for p in state.get("csv_paths", [])]
+        fee_inputs.clear()
+        for fname in file_basenames:
+            inp = QLineEdit()
+            inp.setValidator(validator)
+            inp.setPlaceholderText("Enter cost")
+            saved_price = state.get("fee_schedule", {}).get(fname)
+            if saved_price is not None:
+                inp.setText(str(saved_price))
+            file_form.addRow(QLabel(fname), inp)
+            fee_inputs[fname] = inp
+        update_next_button_state()
+
+    screen.refresh_file_dropdown = refresh_file_dropdown
+
+    return screen
+
+
+# ---------------------------------------------------------------------
+# Tabs
+# ---------------------------------------------------------------------
+
+def create_program_flow_tab(state: Dict, stack:QStackedWidget) -> QStackedWidget:
+    stack = QStackedWidget()
+    state["stack"] = stack
+
+    stack.addWidget(create_welcome_screen(stack, state))             # 0
+    stack.addWidget(create_session_creation_screen(stack, state))    # 1
+    stack.addWidget(create_assign_status_screen(stack, state))       # 2
+    stack.addWidget(QWidget())  # Placeholder for fee screen          # 3
+    stack.addWidget(QWidget())  # Placeholder for payment summary     # 4
+
+    return stack
+
+
+def create_flagged_sessions_tab(state: Dict) -> QWidget:
+    from PyQt6.QtCore import pyqtSignal, QObject
+
+    class FlaggedTabSignals(QObject):
+        fileDoubleClicked = pyqtSignal(str)
+
+    flagged_signals = FlaggedTabSignals()
+    state["flagged_tab_signals"] = flagged_signals
+
+    scr = QWidget()
+    layout = QVBoxLayout(scr)
+
+    header = QLabel("Flagged Sessions Overview")
     header.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(header)
 
-    # -------- banner -------------------------------------------------
-    current_session_lbl = QLabel()
-    layout.addWidget(current_session_lbl)
+    tree = QTreeWidget()
+    tree.setHeaderHidden(True)
+    tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+    layout.addWidget(tree)
 
-    def refresh_current_session_label() -> None:
-        path = state.get("current_session")
-        current_session_lbl.setText(
-            f"Current Session: {os.path.basename(path)}"
-            if path else "No session created yet"
-        )
+    # Edit & Unflag UI
+    edit_box = QGroupBox("Edit Notes and Unflag")
+    edit_layout = QFormLayout(edit_box)
 
-    refresh_current_session_label()
-    state["_refresh_crud_banners"].append(refresh_current_session_label)
-    # -----------------------------------------------------------------
+    selected_file_label = QLabel("Selected file: None")
+    edit_layout.addRow(selected_file_label)
 
-    # Dropdowns
-    club_selector = QComboBox()
-    club_selector.installEventFilter(state["_wheel_filter"])
+    name_dropdown = QComboBox()
+    abnote_input = QLineEdit()
+    save_btn = QPushButton("Save Note")
+    edit_layout.addRow("Select Name:", name_dropdown)
+    edit_layout.addRow("AnkleBreaker Note:", abnote_input)
+    edit_layout.addWidget(save_btn)
+    layout.addWidget(edit_box)
+    edit_box.setEnabled(False)
 
+    selected_session = None
+    selected_file = None
+    df = None
 
-    layout.addWidget(QLabel("Select a club:"))
-    layout.addWidget(club_selector)
+    def determine_default_status(notes: str) -> str:
+        n = str(notes).lower()
+        if "comped" in n:
+            return "comped"
+        elif "no capacity, and room on the waiting list : register" in n:
+            return "waitlist"
+        elif "refund" in n:
+            return "refund"
+        elif "manually confirmed by" in n:
+            return "manual"
+        elif "not over capacity: register" in n:
+            return "regular"
+        else:
+            return "other"
 
-    date_selector = QComboBox()
-    date_selector.installEventFilter(state["_wheel_filter"])
+    def refresh_flagged():
+        tree.clear()
+        sessions_path = SESSIONS_DIR
+        if not os.path.exists(sessions_path):
+            return
+        for session_name in sorted(os.listdir(sessions_path)):
+            session_path = os.path.join(sessions_path, session_name)
+            metadata_path = os.path.join(session_path, "metadata", "metadata.json")
+            if not os.path.exists(metadata_path):
+                continue
+            try:
+                with open(metadata_path, "r") as f:
+                    metadata = json.load(f)
 
-    layout.addWidget(QLabel("Select a date:"))
-    layout.addWidget(date_selector)
+                if metadata.get("flagged"):
+                    paid_status = metadata.get("paid", False)
+                    status_str = "paid ✅" if paid_status else "unpaid ❌"
+                    net = metadata.get("net_to_club", None)
+                    formatted_total = f"${net:.2f}" if isinstance(net, (int, float)) else "No total yet"
+                    display_name = f"{session_name} — {status_str} — total {formatted_total}"
 
-    session_dropdown = QComboBox()
-    session_dropdown.installEventFilter(state["_wheel_filter"])
-    layout.addWidget(QLabel("Select a session:"))
-    layout.addWidget(session_dropdown)
+                    parent_item = QTreeWidgetItem([display_name])
+                    flagged_files = metadata.get("flagged_files", [])
+                    for file_name in flagged_files:
+                        file_item = QTreeWidgetItem(parent_item, [file_name])
+                        full_path = os.path.join(session_path, "csv", file_name)
+                        file_item.setData(0, Qt.ItemDataRole.UserRole, full_path)
+                    tree.addTopLevelItem(parent_item)
 
-    # Status label
-    status_label = QLabel("Select a session to view or update its paid status.")
-    layout.addWidget(status_label)
+            except Exception as e:
+                print(f"Error reading {metadata_path}: {e}")
 
-    sessions_path = SESSIONS_DIR
+    def on_tree_item_selected(item, _prev=None):
+        nonlocal selected_session, selected_file, df
+        if item is None:
+            return
+        parent = item.parent()
+        if parent is None:
+            return
+        selected_session = parent.text(0).split(" — ")[0]
 
-    def meta_path(sess_name: str) -> str:
-        return os.path.join(sessions_path, sess_name, "metadata", "metadata.json")
+        selected_file = item.text(0)
+        selected_file_label.setText(f"Selected file: {selected_file}")
 
-    def update_status_label() -> None:
-        sess = session_dropdown.currentText()
-        mpath = meta_path(sess)
-        if not os.path.exists(mpath):
-            status_label.setText("No metadata found for selected session.")
+        session_dir = os.path.join(SESSIONS_DIR, selected_session)
+        full_path = os.path.join(session_dir, "csv", selected_file)
+        if not os.path.exists(full_path):
             return
         try:
-            with open(mpath) as f:
-                paid = json.load(f).get("paid", False)
-            status_label.setText(f"Current status: {'✅ Paid' if paid else '❌ Unpaid'}")
-        except Exception as exc:
-            status_label.setText(f"Error reading metadata: {exc}")
+            df = pd.read_csv(full_path)
 
+            if "AnkleBreaker notes" not in df.columns:
+                df["AnkleBreaker notes"] = ""
 
+            if "Name" in df.columns:
+                name_dropdown.blockSignals(True)
+                name_dropdown.clear()
+                name_dropdown.addItems(df["Name"].dropna().astype(str).tolist())
+                name_dropdown.blockSignals(False)
 
-    def repopulate_club_dropdown():
-        club_selector.blockSignals(True)
-        club_selector.clear()
-        club_selector.addItem("Select a club...")
-        club_to_dates = load_club_dates()
-        for club in sorted(club_to_dates):
-            club_selector.addItem(club)
-        club_selector.blockSignals(False)
+                if not df["Name"].empty:
+                    name_dropdown.setCurrentIndex(0)
+                    on_name_selected(name_dropdown.currentText())
 
-    def on_club_selected():
-        selected_club = club_selector.currentText()
-        date_selector.clear()
-        session_dropdown.clear()
-        if selected_club and selected_club != "Select a club...":
-            club_to_dates = load_club_dates()
-            if selected_club in club_to_dates:
-                unique_dates = sorted(set(club_to_dates[selected_club]))
-                date_selector.addItems(unique_dates)
+                edit_box.setEnabled(True)
+            else:
+                print(f"[ERROR] 'Name' column missing in {full_path}")
 
-    def on_date_selected():
-        selected_club = club_selector.currentText()
-        selected_date = date_selector.currentText()
-        session_dropdown.clear()
-        if not selected_club or not selected_date or selected_club == "Select a club...":
+        except Exception as e:
+            print(f"[ERROR] Failed to load {full_path}: {e}")
+            df = None
+            edit_box.setEnabled(False)
+
+    def on_tree_item_double_clicked(item: QTreeWidgetItem, column: int):
+        parent = item.parent()
+        if parent is None:
             return
+        file_path = item.data(0, Qt.ItemDataRole.UserRole)
+        if file_path and os.path.exists(file_path):
+            state["tabs"].setCurrentIndex(4)
+            flagged_signals.fileDoubleClicked.emit(file_path)
 
-        matching_sessions = [
-            f for f in os.listdir(sessions_path)
-            if os.path.isdir(os.path.join(sessions_path, f)) and
-               selected_club in f and selected_date in f
-        ]
-        session_dropdown.addItems(sorted(matching_sessions))
-        update_status_label()
-
-    # -- paid / unpaid toggle ----------------------------------------
-    def set_paid(paid: bool) -> None:
-        sess = session_dropdown.currentText()
-        mpath = meta_path(sess)
-        if not os.path.exists(mpath):
-            QMessageBox.warning(scr, "Error", "Metadata file not found.")
+    def on_name_selected(name):
+        if df is None:
             return
-        try:
-            with open(mpath) as f:
+        matches = df[df["Name"] == name]
+        if matches.empty:
+            abnote_input.clear()
+            return
+        abnote = matches["AnkleBreaker notes"].values[0] if "AnkleBreaker notes" in matches.columns else ""
+        abnote_input.setText(str(abnote))
+
+    def on_save_note():
+        nonlocal selected_session, selected_file, df
+        if df is None:
+            return
+        name = name_dropdown.currentText()
+        if not name:
+            return
+        if "AnkleBreaker notes" not in df.columns:
+            df["AnkleBreaker notes"] = ""
+        df.loc[df["Name"] == name, "AnkleBreaker notes"] = abnote_input.text()
+
+        df["default_status"] = df["Notes"].apply(determine_default_status)
+
+        session_path = os.path.join(SESSIONS_DIR, selected_session)
+        csv_dir = os.path.join(session_path, "csv")
+        old_path = os.path.join(csv_dir, selected_file)
+        df.to_csv(old_path, index=False)
+
+        should_flag = (df["default_status"] == "other").any()
+        base_name = selected_file.replace("-flag.csv", ".csv") if selected_file.endswith("-flag.csv") else selected_file
+        new_file_name = base_name.replace(".csv", "-flag.csv") if should_flag else base_name
+        new_path = os.path.join(csv_dir, new_file_name)
+
+        if old_path != new_path:
+            os.rename(old_path, new_path)
+
+        meta_path = os.path.join(session_path, "metadata", "metadata.json")
+        if os.path.exists(meta_path):
+            with open(meta_path, "r") as f:
                 meta = json.load(f)
-            meta["paid"] = paid
-            with open(mpath, "w") as f:
+            all_files = os.listdir(csv_dir)
+            flagged_files = [f for f in all_files if f.endswith("-flag.csv")]
+            meta["flagged_files"] = flagged_files
+            meta["flagged"] = bool(flagged_files)
+
+            current_name = os.path.basename(session_path)
+            new_session_name = current_name.replace("-flag", "") if not flagged_files else (
+                current_name if "-flag" in current_name else f"{current_name}-flag"
+            )
+            if new_session_name != current_name:
+                new_session_path = os.path.join(SESSIONS_DIR, new_session_name)
+                os.rename(session_path, new_session_path)
+                selected_session = new_session_name
+                session_path = new_session_path
+                state["current_session"] = new_session_path
+
+            with open(os.path.join(SESSIONS_DIR, selected_session, "metadata", "metadata.json"), "w") as f:
                 json.dump(meta, f, indent=4)
-            update_status_label()
-            state["signals"].dataChanged.emit()
-        except Exception as exc:
-            QMessageBox.critical(scr, "Error", f"Failed to update metadata:\n{exc}")
+
+        state["signals"].sessionsChanged.emit()
+        state["signals"].dataChanged.emit()
+        refresh_flagged()
+
+    tree.itemClicked.connect(on_tree_item_selected)
+    tree.currentItemChanged.connect(on_tree_item_selected)
+
     
-    
-    # -- delete with confirmation ------------------------------------
-    def delete_session(state: Dict, parent_widget: QWidget, selected_session_name: str):
-        session_path = Path(SESSIONS_DIR) / selected_session_name
+    tree.itemDoubleClicked.connect(on_tree_item_double_clicked)
+    name_dropdown.currentTextChanged.connect(on_name_selected)
+    save_btn.clicked.connect(on_save_note)
 
-        if not session_path.exists():
-            QMessageBox.warning(parent_widget, "Session Not Found", f"The folder for session '{selected_session_name}' was not found.")
-            return
-
-        reply = QMessageBox.question(
-            parent_widget,
-            "Delete Session",
-            f"Are you sure you want to permanently delete:\n\n📁 {selected_session_name}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-
-        if reply == QMessageBox.StandardButton.Yes:
-            try:
-                shutil.rmtree(session_path)
-
-                # If deleted session is the current one, clear state
-                if state.get("current_session") and Path(state["current_session"]).resolve() == session_path.resolve():
-                    state["current_session"] = None
-                    state["csv_paths"] = []
-                    state["dataframes"] = {}
-                    state["status_counts"] = {}
-                    state["fee_schedule"] = {}
-
-                for fn in state.get("_refresh_crud_banners", []):
-                    fn()
-
-                state["signals"].sessionsChanged.emit()
-                state["signals"].dataChanged.emit()
-
-            except Exception as e:
-                QMessageBox.critical(parent_widget, "Delete Failed", f"Could not delete session:\n\n{e}")
-
-
-    # Buttons
-    row = QHBoxLayout()
-    buttons = [
-        ("Mark as Paid", lambda: set_paid(True)),
-        ("Mark as Unpaid", lambda: set_paid(False)),
-        ("Delete Session", lambda: delete_session(state, scr, session_dropdown.currentText())),
-    ]
-
-    for text, func in buttons:
-        btn = QPushButton(text)
-        btn.clicked.connect(func)
-        row.addWidget(btn)
-
-
-    def hard_refresh():
-        club_selector.blockSignals(True)
-        date_selector.blockSignals(True)
-        session_dropdown.blockSignals(True)
-
-        repopulate_club_dropdown()
-        date_selector.clear()
-        session_dropdown.clear()
-        refresh_current_session_label()
-        status_label.setText("Select a session to view or update its paid status.")
-
-        club_selector.blockSignals(False)
-        date_selector.blockSignals(False)
-        session_dropdown.blockSignals(False)
-    # --- Add Load Session button ---
-    load_btn = QPushButton("Load Session")
-    def on_load_session_clicked():
-        start_dir = str(SESSIONS_DIR) if os.path.exists(SESSIONS_DIR) else str(BASE_DIR)
-        folder = QFileDialog.getExistingDirectory(
-            scr,
-            "Select Session Folder",
-            start_dir
-        )
-        if folder:
-            try:
-                load_session_from_folder(folder, stack, state, scr)
-                QMessageBox.information(scr, "Session Loaded", f"Session loaded from:\n{folder}")
-            except Exception as e:
-                QMessageBox.critical(scr, "Failed to Load", f"Could not load session:\n{e}")
-
-    row.addWidget(load_btn)
-    load_btn.clicked.connect(on_load_session_clicked)
-
-    layout.addLayout(row)
-
-    # Signal wiring
-    club_selector.currentTextChanged.connect(on_club_selected)
-    date_selector.currentTextChanged.connect(on_date_selected)
-    session_dropdown.currentIndexChanged.connect(update_status_label)
-
-    # auto-refresh when sessions or clubs change
-    state["signals"].sessionsChanged.connect(hard_refresh)
-    state["signals"].clubsChanged.connect(hard_refresh)   # optional but handy
-
-    # Initial population
-    repopulate_club_dropdown()
+    state["signals"].sessionsChanged.connect(refresh_flagged)
+    refresh_flagged()
 
     return scr
+
 
 def create_current_session_files_tab(state: Dict) -> QWidget:
     scr = QWidget()
     scr_layout = QVBoxLayout(scr)
     state["_wheel_filter"] = state.get("_wheel_filter") or WheelEventFilter()
+    state.setdefault("fee_schedule", {})
+
 
     header = QLabel("Files in Current Session")
     header.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1968,7 +2017,7 @@ def create_current_session_files_tab(state: Dict) -> QWidget:
 
         dfs = []
         color_map = {}
-        colors = [QColor("red"), QColor("lightblue"), QColor("lightgreen"), QColor("orange"), QColor("violet"), QColor("lightgray")]
+        colors = [QColor("lightblue"), QColor("lightgreen"), QColor("orange"), QColor("violet"), QColor("lightgray")]
 
         for i, fname in enumerate(filenames):
             full_path = os.path.join(csv_dir, fname)
@@ -2077,6 +2126,7 @@ def create_current_session_files_tab(state: Dict) -> QWidget:
 
 def create_any_file_viewer_tab(state: Dict) -> QWidget:
     scr = QWidget()
+    scr.setObjectName("any_file_viewer_tab")
     layout = QVBoxLayout(scr)
     state["_wheel_filter"] = state.get("_wheel_filter") or WheelEventFilter()
 
@@ -2130,27 +2180,45 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
 
     def load_club_session_file_structure():
         structure = defaultdict(lambda: defaultdict(list))
+        print(f"[DEBUG] Scanning sessions in: {SESSIONS_DIR}")
         for session_name in os.listdir(SESSIONS_DIR):
             session_path = os.path.join(SESSIONS_DIR, session_name)
-            meta_path = os.path.join(session_path, "metadata", "metadata.json")
-            if not os.path.exists(meta_path):
+            print(f"  ├── Checking session: {session_name}")
+
+            if not os.path.isdir(session_path):
+                print("     [SKIP] Not a directory")
                 continue
+
             try:
-                with open(meta_path) as f:
-                    meta = json.load(f)
-                club = str(meta.get("club")).strip()
+                # Extract club name from session folder name
+                parts = session_name.split("-")
+                if len(parts) < 3:
+                    print("     [SKIP] Invalid session name format")
+                    continue
+                club = parts[1]
+                print(f"     [CLUB] Parsed club: {club}")
+
                 csv_path = os.path.join(session_path, "csv")
-                if club and os.path.exists(csv_path):
-                    for f in os.listdir(csv_path):
-                        if f.endswith(".csv"):
-                            structure[club][session_name].append((session_path, f))
+                if not os.path.isdir(csv_path):
+                    print("     [SKIP] Missing csv folder")
+                    continue
+
+                for fname in os.listdir(csv_path):
+                    if fname.endswith(".csv"):
+                        full_path = os.path.join(csv_path, fname)
+                        if os.path.exists(full_path):
+                            structure[club][session_name].append((session_path, fname))
+
             except Exception as e:
-                print(f"[ERROR] Skipping {session_name}: {e}")
+                print(f"[ERROR] Skipping session {session_name}: {e}")
                 continue
+
+        print(f"[DEBUG] Final club-session-file structure:\n{structure}")
         return structure
 
     def refresh_dropdowns():
         nonlocal club_session_file_map
+        print("[REFRESH] Refreshing Browse All Files tab")
         club_session_file_map = load_club_session_file_structure()
 
         club_dropdown.blockSignals(True)
@@ -2184,6 +2252,7 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
         table.setColumnCount(0)
 
         selected_club = club_dropdown.currentText()
+        print(f"[UI] Selected club: {selected_club}")
         if selected_club in club_session_file_map:
             sessions = sorted(club_session_file_map[selected_club].keys())
             session_dropdown.addItems(sessions)
@@ -2202,6 +2271,7 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
 
         selected_club = club_dropdown.currentText()
         selected_session = session_dropdown.currentText()
+        print(f"[UI] Selected session: {selected_session}")
         if selected_club in club_session_file_map and selected_session in club_session_file_map[selected_club]:
             file_names = [f for (_, f) in club_session_file_map[selected_club][selected_session]]
             file_dropdown.addItems(file_names)
@@ -2215,6 +2285,7 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
         selected_club = club_dropdown.currentText()
         selected_session = session_dropdown.currentText()
         selected_file = file_dropdown.currentText()
+        print(f"[UI] Selected file: {selected_file}")
         if not (selected_club and selected_session and selected_file):
             return
         for folder, fname in club_session_file_map[selected_club][selected_session]:
@@ -2277,6 +2348,11 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
     file_dropdown.currentTextChanged.connect(on_file_change)
     state["signals"].sessionsChanged.connect(refresh_dropdowns)
 
+    # Add .refresh method for external trigger
+    def refresh():
+        refresh_dropdowns()
+    scr.refresh = refresh
+
     # Initial setup
     refresh_dropdowns()
     connect_flagged_tab_signal()
@@ -2316,8 +2392,6 @@ def load_session_from_folder(session_dir: str, stack: QStackedWidget, state: Dic
                 return "manual"
             elif "not over capacity: register" in n:
                 return "regular"
-            elif "no show" in n:
-                return "no_show"
             else:
                 return "other"
 
@@ -2407,6 +2481,13 @@ def reset_session(stack: QStackedWidget, state: Dict, parent: QWidget):
     for key in keys_to_clear:
         state.pop(key, None)
 
+    # ✅ Unlock file upload controls
+    state["session_locked"] = False
+    if state.get("_upload_files_btn"):
+        state["_upload_files_btn"].setEnabled(True)
+    if state.get("_upload_folder_btn"):
+        state["_upload_folder_btn"].setEnabled(True)
+
     # Rebuild the stack from scratch
     if stack:
         stack.removeWidget(stack.widget(0))
@@ -2421,33 +2502,65 @@ def reset_session(stack: QStackedWidget, state: Dict, parent: QWidget):
     # Refresh banners if needed
     for fn in state.get("_refresh_crud_banners", []):
         fn()
+    state["signals"].sessionsChanged.emit()  # ✅ Add this here
 
     # Notify the user
     QMessageBox.information(parent, "Session Reset", "The session has been reset.")
-
 
 
 def create_main_window() -> QWidget:
     container = QWidget()
     layout = QVBoxLayout(container)
 
-    # --- Menu Bar (like VS Code) ---
-    menubar = QMenuBar()
-    load_menu = QMenu("AnkleBar", menubar)
-
     state: Dict = {}
     state["signals"] = AppSignals()
     state["global_metadata"] = load_global_metadata()
     state["_refresh_crud_banners"] = []
 
-    # --- Load Session ---
+    # --- Top Button Bar (AnkleBar + Past Club Sessions) ---
+    top_bar = QHBoxLayout()
+
+    shared_button_style = """
+        QPushButton {
+            background-color: #5b7db1;
+            color: white;
+            font-weight: bold;
+            padding: 4px 12px;
+            border-radius: 6px;
+        }
+        QPushButton::menu-indicator {
+            image: none;
+        }
+        QPushButton:hover {
+            background-color: #486a9c;
+        }
+    """
+
+    # --- AnkleBar Button with Dropdown ---
+    anklebar_btn = QPushButton("📁 AnkleBar ▾")
+    anklebar_btn.setFixedHeight(32)
+    anklebar_btn.setStyleSheet(shared_button_style)
+
+    anklebar_menu = QMenu()
+    anklebar_btn.setMenu(anklebar_menu)
+
     load_folder_action = QAction("Load Session", container)
+    load_folder_action.triggered.connect(lambda: open_folder_dialog())
+    anklebar_menu.addAction(load_folder_action)
+
+    reset_session_action = QAction("Reset Session", container)
+    reset_session_action.triggered.connect(lambda: reset_session(state["stack"], state, container))
+    anklebar_menu.addAction(reset_session_action)
+
+    delete_session_action = QAction("Delete Session", container)
+    delete_session_action.triggered.connect(lambda: delete_session_dialog())
+    anklebar_menu.addAction(delete_session_action)
+
     def open_folder_dialog():
         start_dir = str(SESSIONS_DIR) if os.path.exists(SESSIONS_DIR) else str(BASE_DIR)
         folder = QFileDialog.getExistingDirectory(container, "Select Session Folder", start_dir)
         if not folder:
-            return  # User cancelled from file dialog
-
+            return
         folder_name = os.path.basename(folder)
         reply = QMessageBox.question(
             container,
@@ -2455,41 +2568,16 @@ def create_main_window() -> QWidget:
             f"You are about to load session:\n\n📁 {folder_name}\n\nContinue?",
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
         )
-
         if reply == QMessageBox.StandardButton.Ok:
             load_session_from_folder(folder, state["stack"], state, container)
         else:
             open_folder_dialog()
 
-    load_folder_action.triggered.connect(open_folder_dialog)
-    load_menu.addAction(load_folder_action)
-
-    # --- Reset Session ---
-    reset_session_action = QAction("Reset Session", container)
-    reset_session_action.triggered.connect(lambda: reset_session(state["stack"], state, container))
-    load_menu.addAction(reset_session_action)
-
-    # --- Load Session from Graphic ---
-    load_graphical_action = QAction("Load Session from Graphic", container)
-    def launch_graphical_loader():
-        graphical_screen = create_graphical_loader_screen(state["stack"], state)
-        if state["stack"].indexOf(graphical_screen) == -1:
-            state["stack"].addWidget(graphical_screen)
-        state["tabs"].setCurrentIndex(0)
-        state["stack"].setCurrentWidget(graphical_screen)
-
-    load_graphical_action.triggered.connect(launch_graphical_loader)
-    load_menu.addAction(load_graphical_action)
-
-    # --- Delete Session ---
-    delete_session_action = QAction("Delete Session", container)
     def delete_session_dialog():
         start_dir = str(SESSIONS_DIR) if os.path.exists(SESSIONS_DIR) else str(BASE_DIR)
         folder = QFileDialog.getExistingDirectory(container, "Select Session Folder to Delete", start_dir)
-
         if not folder:
             return
-
         session_name = os.path.basename(folder)
         reply = QMessageBox.question(
             container,
@@ -2497,35 +2585,40 @@ def create_main_window() -> QWidget:
             f"Are you sure you want to permanently delete session:\n\n📁 {session_name}?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-
         if reply == QMessageBox.StandardButton.Yes:
             try:
                 shutil.rmtree(folder)
-
                 if state.get("current_session") and os.path.abspath(state["current_session"]) == os.path.abspath(folder):
                     state["current_session"] = None
                     state["csv_paths"] = []
                     state["dataframes"] = {}
                     state["status_counts"] = {}
                     state["fee_schedule"] = {}
-
                 for fn in state.get("_refresh_crud_banners", []):
                     fn()
-
                 state["signals"].sessionsChanged.emit()
                 state["signals"].dataChanged.emit()
-
                 QMessageBox.information(container, "Deleted", f"Deleted session:\n{session_name}")
             except Exception as e:
                 QMessageBox.critical(container, "Delete Failed", f"Could not delete session:\n\n{e}")
 
-    delete_session_action.triggered.connect(delete_session_dialog)
-    load_menu.addAction(delete_session_action)
+    # --- Past Club Sessions Button (no dropdown, styled the same) ---
+    past_sessions_btn = QPushButton("📂 Past Club Sessions")
+    past_sessions_btn.setFixedHeight(32)
+    past_sessions_btn.setStyleSheet(shared_button_style)
+    def launch_graphical_loader():
+        state["previous_screen_index"] = state["stack"].currentIndex()
+        graphical_screen = create_graphical_loader_screen(state["stack"], state)
+        if state["stack"].indexOf(graphical_screen) == -1:
+            state["stack"].addWidget(graphical_screen)
+        state["tabs"].setCurrentIndex(0)
+        state["stack"].setCurrentWidget(graphical_screen)
+    past_sessions_btn.clicked.connect(launch_graphical_loader)
 
-    # --- Finalize Menu ---
-    menubar.addMenu(load_menu)
-    layout.setMenuBar(menubar)
-    menubar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+    top_bar.addWidget(anklebar_btn)
+    top_bar.addWidget(past_sessions_btn)
+    top_bar.addStretch()
+    layout.addLayout(top_bar)
 
     # --- Session Banner ---
     session_label = QLabel()
@@ -2567,7 +2660,6 @@ def create_main_window() -> QWidget:
     tabs.addTab(program_tab, "Program")
     tabs.addTab(create_current_session_files_tab(state), "Current Session Files")
     tabs.addTab(create_flagged_sessions_tab(state), "Flagged")
-    tabs.addTab(create_session_admin_tab(state, state["stack"]), "Session Admin")
     tabs.addTab(create_any_file_viewer_tab(state), "Browse All Files")
 
     def refresh_dynamic_tab(index):
