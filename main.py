@@ -1161,58 +1161,37 @@ def create_assign_status_screen(stack, state) -> QWidget:
         is_flagged_file = "-flag.csv" in os.path.basename(csv_path)
 
         session_path = os.path.dirname(os.path.dirname(csv_path))
-        meta_path = os.path.join(session_path, "metadata", "metadata.json")
+        csv_dir = os.path.join(session_path, "csv")
         original_session = state.get("current_session")
+        meta_path = os.path.join(session_path, "metadata", "metadata.json")
 
+        old_basename = os.path.basename(csv_path)
+        unflagged_path = re.sub(r"-flag(?=\.csv$)", "", csv_path)
+        new_basename = os.path.basename(unflagged_path)
+
+        # Load metadata BEFORE changing session path
         if os.path.exists(meta_path):
             with open(meta_path, "r") as f:
                 metadata = json.load(f)
         else:
             metadata = {}
 
-        old_basename = os.path.basename(csv_path)
-
         if is_flagged_file and not still_flagged:
-            # ------------------- UNFLAGGING CASE -------------------
-
-            # Calculate new filename
-            unflagged_path = re.sub(r"-flag(?=\.csv$)", "", csv_path)
-            new_basename = os.path.basename(unflagged_path)
-
-            # Update in-memory state references
-            for key in ["csv_paths", "dataframes", "status_counts", "fee_schedule"]:
-                container = state.get(key, {})
-                if isinstance(container, list):
-                    if csv_path in container:
-                        container.remove(csv_path)
-                        container.append(unflagged_path)
-                elif isinstance(container, dict):
-                    if csv_path in container:
-                        container[unflagged_path] = container.pop(csv_path)
-
-            # Rename file
+            # --------------------------------------------
+            # Step 1: Rename the file
+            # --------------------------------------------
             if os.path.exists(csv_path):
                 try:
                     os.rename(csv_path, unflagged_path)
                     print(f"[RENAME] {csv_path} → {unflagged_path}")
                 except Exception as e:
                     print(f"[ERROR] Failed to rename file: {e}")
-
-                # ✅ Clean up any leftover -flag.csv files in same folder
-                flagged_dir = os.path.dirname(unflagged_path)
-                for fname in os.listdir(flagged_dir):
-                    if fname.endswith("-flag.csv"):
-                        full_flag_path = os.path.join(flagged_dir, fname)
-                        if full_flag_path not in state["csv_paths"]:
-                            try:
-                                os.remove(full_flag_path)
-                                print(f"[CLEANUP] Removed leftover flagged file: {full_flag_path}")
-                            except Exception as e:
-                                print(f"[WARNING] Could not remove flagged file {full_flag_path}: {e}")
             else:
-                print(f"[WARNING] Could not find file to rename: {csv_path}")
+                print(f"[WARNING] File to rename not found: {csv_path}")
 
-            # Update metadata fee keys and flagged files
+            # --------------------------------------------
+            # Step 2: Update metadata (in memory only)
+            # --------------------------------------------
             fees = metadata.get("fees", {})
             if old_basename in fees:
                 fees[new_basename] = fees.pop(old_basename)
@@ -1220,80 +1199,91 @@ def create_assign_status_screen(stack, state) -> QWidget:
             if "flagged_files" in metadata and old_basename in metadata["flagged_files"]:
                 metadata["flagged_files"].remove(old_basename)
 
-            # Check if session is still flagged
-            metadata["flagged"] = any("-flag.csv" in os.path.basename(p) for p in state["csv_paths"])
+            metadata["flagged"] = False
 
-            # ------------------- SESSION FOLDER RENAME -------------------
+            # --------------------------------------------
+            # Step 3: Update state paths
+            # --------------------------------------------
+            propagate_file_rename(csv_path, unflagged_path, state, stack)
+
+            # --------------------------------------------
+            # Step 4: Delete any leftover -flag.csv files
+            # --------------------------------------------
+            if os.path.exists(csv_dir):
+                for fname in os.listdir(csv_dir):
+                    if fname.endswith("-flag.csv"):
+                        full_path = os.path.join(csv_dir, fname)
+                        if full_path not in state["csv_paths"]:
+                            try:
+                                os.remove(full_path)
+                                print(f"[CLEANUP] Removed leftover flagged file: {full_path}")
+                            except Exception as e:
+                                print(f"[WARNING] Could not delete leftover flagged file: {e}")
+            else:
+                print(f"[SKIP] csv_dir no longer exists: {csv_dir}")
+
+            # --------------------------------------------
+            # Step 5: Rename the session folder if needed
+            # --------------------------------------------
             if "-flag" in original_session and not metadata["flagged"]:
                 new_session_path = original_session.replace("-flag", "")
                 if os.path.exists(original_session) and not os.path.exists(new_session_path):
-                    os.rename(original_session, new_session_path)
-                    state["current_session"] = new_session_path
+                    try:
+                        os.rename(original_session, new_session_path)
+                        print(f"[FOLDER RENAME] {original_session} → {new_session_path}")
+                        state["current_session"] = new_session_path
 
-                    # Rewrite all session-relative paths
-                    state["csv_paths"] = [
-                        p.replace(original_session, new_session_path)
-                        for p in state["csv_paths"]
-                    ]
-                    state["dataframes"] = {
-                        p.replace(original_session, new_session_path): df
-                        for p, df in state["dataframes"].items()
-                    }
-                    state["status_counts"] = {
-                        os.path.basename(p.replace(original_session, new_session_path)): val
-                        for p, val in state["status_counts"].items()
-                    }
-                    state["fee_schedule"] = {
-                        os.path.basename(p.replace(original_session, new_session_path)): price
-                        for p, price in state["fee_schedule"].items()
-                    }
+                        # Update all paths in state
+                        state["csv_paths"] = [p.replace(original_session, new_session_path) for p in state["csv_paths"]]
+                        state["dataframes"] = {
+                            p.replace(original_session, new_session_path): df
+                            for p, df in state["dataframes"].items()
+                        }
+                        state["status_counts"] = {
+                            os.path.basename(p.replace(original_session, new_session_path)): val
+                            for p, val in state["status_counts"].items()
+                        }
+                        state["fee_schedule"] = {
+                            os.path.basename(p.replace(original_session, new_session_path)): price
+                            for p, price in state["fee_schedule"].items()
+                        }
 
-                    # Update metadata fees to use new basenames
-                    metadata["fees"] = {
-                        os.path.basename(k.replace(original_session, new_session_path)): v
-                        for k, v in fees.items()
-                    }
+                        # Replace the session_path and meta_path for saving
+                        session_path = new_session_path
+                        meta_path = os.path.join(session_path, "metadata", "metadata.json")
 
-            # Save updated metadata
-            updated_meta_path = os.path.join(state["current_session"], "metadata", "metadata.json")
-            os.makedirs(os.path.dirname(updated_meta_path), exist_ok=True)
-            with open(updated_meta_path, "w") as f:
-                json.dump(metadata, f, indent=2)
+                        # Delete the old session folder if it still exists
+                        if os.path.exists(original_session):
+                            shutil.rmtree(original_session)
+                            print(f"[CLEANUP] Deleted old folder: {original_session}")
 
-            # UI + State refresh
-            state["signals"].sessionsChanged.emit()
-            state["signals"].dataChanged.emit()
+                    except Exception as e:
+                        print(f"[ERROR] Failed to rename or clean up session folder: {e}")
 
-            # Step 5: Force-refresh the Browse All Files tab if it's available
-            tab_widget = state.get("tabs")
-            browse_tab_index = 3  # Browse All Files tab is at index 3
+            # --------------------------------------------
+            # Step 6: Save metadata to the correct path
+            # --------------------------------------------
+            try:
+                os.makedirs(os.path.dirname(meta_path), exist_ok=True)
+                with open(meta_path, "w") as f:
+                    json.dump(metadata, f, indent=2)
+            except Exception as e:
+                print(f"[ERROR] Failed to write updated metadata: {e}")
 
-            if tab_widget:
-                browse_tab = tab_widget.widget(browse_tab_index)
-                if hasattr(browse_tab, "refresh"):
-                    browse_tab.refresh()
-                    print("[REFRESH] Browse All Files tab manually refreshed.")
-
-            propagate_file_rename(csv_path, unflagged_path, state, stack)
-
+            # Final UI & signal refresh
             if callable(state.get("refresh_current_session_label")):
                 state["refresh_current_session_label"]()
 
-            # Clean up old folder if name changed
-            if original_session != state["current_session"] and os.path.exists(original_session):
-                try:
-                    shutil.rmtree(original_session)
-                    print(f"[CLEANUP] Deleted old flagged folder: {original_session}")
-                except Exception as e:
-                    print(f"[ERROR] Failed to delete old flagged folder: {e}")
+            state["signals"].sessionsChanged.emit()
+            state["signals"].dataChanged.emit()
 
         elif not is_flagged_file and still_flagged:
             assign_screen = stack.widget(2)
             if hasattr(assign_screen, "session_label"):
                 assign_screen.session_label.setText("Status Assignment FLAGGED")
-            print("[INFO] File needs to be flagged again, but re-flagging not implemented here.")
+            print("[INFO] File should be re-flagged, but that flow isn’t implemented.")
         else:
-            print("[INFO] No rename needed.")
+            print("[INFO] No rename or cleanup necessary.")
 
     def update_other_display():
         content = ""
