@@ -135,10 +135,6 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
     layout.addLayout(top_bar)
 
     # Header
-    header = QLabel("Select a Club")
-    header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    layout.addWidget(header)
-
     # Secondary back button (between club and session views)
     back_btn = QToolButton()
     back_btn.setText("← Back")
@@ -154,7 +150,18 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
             background-color: #486a9c;
         }
     """)
-    layout.addWidget(back_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+
+    # Header and Back button in same row
+    header = QLabel("Select a Club")
+    header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    header_layout = QHBoxLayout()
+    header_layout.addWidget(back_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+    header_layout.addStretch()
+    header_layout.addWidget(header, alignment=Qt.AlignmentFlag.AlignCenter)
+    header_layout.addStretch()
+    layout.addLayout(header_layout)
+
 
     content_widget = QWidget()
     content_layout = QGridLayout(content_widget)
@@ -165,26 +172,19 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
     tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
     tree.setVisible(False)
     layout.addWidget(tree)
-    # Selected session label
+
     selected_session_label = QLabel("Selected Session: None")
     selected_session_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(selected_session_label)
 
-    # Admin buttons layout
     admin_btn_layout = QHBoxLayout()
-
     mark_paid_btn = QPushButton("Mark Paid")
     mark_unpaid_btn = QPushButton("Mark Unpaid")
     delete_session_btn = QPushButton("Delete Session")
-
     for btn in [mark_paid_btn, mark_unpaid_btn, delete_session_btn]:
         btn.setEnabled(False)
         admin_btn_layout.addWidget(btn)
-
     layout.addLayout(admin_btn_layout)
-
-
-
 
     def extract_club_names():
         club_names = set()
@@ -193,13 +193,14 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
         for folder in os.listdir(SESSIONS_DIR):
             parts = folder.split("-")
             if len(parts) >= 4 and parts[0] == "Session":
-                club = parts[1] 
+                club = parts[1]
                 club_names.add(club)
         return sorted(club_names)
 
     def show_club_buttons():
         header.setText("Select a Club")
         back_btn.setVisible(False)
+        back_to_welcome_btn.setVisible(True)  # ✅ Show only at top-level
         content_widget.setVisible(True)
         tree.setVisible(False)
 
@@ -214,17 +215,16 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
             btn.setIconSize(QSize(48, 48))
             btn.setFixedSize(120, 100)
             btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-
             btn.setProperty("class", "folder-button")
             btn.style().unpolish(btn)
             btn.style().polish(btn)
-
             btn.mouseDoubleClickEvent = lambda e, club=club: show_sessions_for_club(club)
             content_layout.addWidget(btn, idx // 4, idx % 4)
 
     def show_sessions_for_club(club: str):
         header.setText(f"Sessions for {club}")
         back_btn.setVisible(True)
+        back_to_welcome_btn.setVisible(False)  # ✅ Hide when inside a club
         content_widget.setVisible(False)
         tree.setVisible(True)
 
@@ -235,29 +235,19 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
                 session_path = os.path.join(SESSIONS_DIR, folder)
                 meta_path = os.path.join(session_path, "metadata", "metadata.json")
                 csv_path = os.path.join(session_path, "csv")
-
                 if not os.path.exists(meta_path) or not os.path.exists(csv_path):
                     continue
-
                 try:
                     with open(meta_path, "r") as f:
                         metadata = json.load(f)
-
                     paid_status = metadata.get("paid", False)
                     status_str = "paid ✅" if paid_status else "unpaid ❌"
-
                     net = metadata.get("net_to_club", None)
-                    if isinstance(net, (int, float)):
-                        formatted_total = f"${net:.2f}"
-                    else:
-                        formatted_total = "No total yet"
-
+                    formatted_total = f"${net:.2f}" if isinstance(net, (int, float)) else "No total yet"
                     display_name = f"{folder} — {status_str} — total {formatted_total}"
-
                 except Exception as e:
                     print(f"[ERROR] Could not read metadata for {folder}: {e}")
                     display_name = folder
-
                 parent_item = QTreeWidgetItem([display_name])
                 parent_item.setData(0, Qt.ItemDataRole.UserRole, session_path)
                 for fname in sorted(os.listdir(csv_path)):
@@ -267,7 +257,7 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
 
     def on_tree_item_clicked(item: QTreeWidgetItem, _):
         text = item.text(0)
-        if "—" in text:  # top-level session item
+        if "—" in text:
             session_name = text.split(" — ")[0]
             session_path = os.path.join(SESSIONS_DIR, session_name)
             state["_selected_session_path"] = session_path
@@ -293,9 +283,8 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
             update_last_opened_metadata(session_path)
             load_session_from_folder(session_path, stack, state, scr)
 
-    tree.itemDoubleClicked.connect(
-        lambda item, _: confirm_and_load_session(item)
-    )
+    tree.itemDoubleClicked.connect(lambda item, _: confirm_and_load_session(item))
+
     def on_session_selected(item, _):
         session_path = item.data(0, Qt.ItemDataRole.UserRole)
         if not session_path:
@@ -304,9 +293,10 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
         mark_paid_btn.setEnabled(True)
         mark_unpaid_btn.setEnabled(True)
         delete_session_btn.setEnabled(True)
-        selected_session_label.session_path = session_path  # Store path for later
+        selected_session_label.session_path = session_path
 
     tree.itemClicked.connect(on_session_selected)
+
     def update_paid_status(path, status: bool):
         try:
             meta_path = os.path.join(path, "metadata", "metadata.json")
@@ -321,7 +311,6 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
             QMessageBox.critical(scr, "Error", f"Failed to update paid status: {e}")
         state["signals"].sessionsChanged.emit()
 
-
     def delete_session(path):
         confirm = QMessageBox.question(
             scr,
@@ -331,25 +320,19 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
         )
         if confirm == QMessageBox.StandardButton.Yes:
             try:
-                print(f"[DEBUG] Attempting to delete: {path}")
                 shutil.rmtree(path)
-
-                # ✅ If it's the current session, clear state
                 if str(path) == str(state.get("current_session")):
                     state["current_session"] = None
                     state["csv_paths"] = []
                     state["dataframes"] = {}
                     state["status_counts"] = {}
                     state["fee_schedule"] = {}
-
-                    # 🔍 Dynamically find main_window to update the label
                     parent = scr
                     while parent is not None:
                         if hasattr(parent, "current_session_label"):
                             parent.current_session_label.setText("No current session")
                             break
                         parent = parent.parent()
-
                 QMessageBox.information(scr, "Deleted", "Session deleted successfully.")
                 selected_session_label.setText("Selected Session: None")
                 for btn in [mark_paid_btn, mark_unpaid_btn, delete_session_btn]:
@@ -358,7 +341,6 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
                 state["signals"].sessionsChanged.emit()
                 show_sessions_for_club(header.text().split("Sessions for ")[-1])
             except Exception as e:
-                print(f"[ERROR] Deletion failed for path: {path}")
                 QMessageBox.critical(scr, "Error", f"Could not delete session: {e}")
 
     mark_paid_btn.clicked.connect(lambda: update_paid_status(selected_session_label.session_path, True))
@@ -367,6 +349,7 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
 
     back_btn.clicked.connect(show_club_buttons)
     show_club_buttons()
+    scr.is_graphical_loader = True
     return scr
 
 class WheelEventFilter(QObject):
@@ -1048,6 +1031,10 @@ def create_assign_status_screen(stack, state) -> QWidget:
 
     scroll.setWidget(scroll_content)
     left_layout.addWidget(scroll)
+    
+    next_btn = QPushButton("Next")
+
+    left_layout.addWidget(next_btn)
 
 
     # Right layout (Other display)
@@ -1287,13 +1274,17 @@ def create_assign_status_screen(stack, state) -> QWidget:
 
     def update_other_display():
         content = ""
+        has_other = False
         for fname, df in zip(session_csvs, dataframes):
             others = df[df["current_status"] == "other"]["Name"].tolist()
             if others:
+                has_other = True
                 content += f"{fname}:\n"
                 for name in others:
                     content += f"  {name}\n"
         other_display.setText(content.strip())
+        next_btn.setEnabled(not has_other)
+        return has_other
 
     def update_status_counts():
         counts_per_file = {}
@@ -1484,10 +1475,7 @@ def create_assign_status_screen(stack, state) -> QWidget:
         stack.insertWidget(3, fee_screen)
         stack.setCurrentIndex(3)
 
-    next_btn = QPushButton("Next")
     next_btn.clicked.connect(go_to_fee_schedule)
-    left_layout.addWidget(next_btn)
-
     main_layout.addLayout(left_layout, stretch=3)
     main_layout.addLayout(right_layout, stretch=1)
     def refresh_file_dropdown():
@@ -1522,6 +1510,8 @@ def create_assign_status_screen(stack, state) -> QWidget:
 
 
     screen.refresh_file_dropdown = refresh_file_dropdown
+    next_btn.setEnabled(False)  # default state until verified
+    update_other_display()      # initial evaluation
 
     return screen
 
@@ -2609,6 +2599,7 @@ def create_main_window() -> QWidget:
     top_bar.addWidget(past_sessions_btn)
     top_bar.addStretch()
     layout.addLayout(top_bar)
+    
 
     # --- Session Banner ---
     session_label = QLabel()
@@ -2658,6 +2649,22 @@ def create_main_window() -> QWidget:
             widget.refresh()
 
     tabs.currentChanged.connect(refresh_dynamic_tab)
+        # --- Disable Past Club Sessions button while on that screen ---
+    def track_graphical_loader_change(index):
+        current_widget = state["stack"].widget(index)
+        graphical_loader_screen = None
+        # Try to find the graphical loader screen in stack
+        for i in range(state["stack"].count()):
+            widget = state["stack"].widget(i)
+            if hasattr(widget, "is_graphical_loader") and widget.is_graphical_loader:
+                graphical_loader_screen = widget
+                break
+        if current_widget == graphical_loader_screen:
+            past_sessions_btn.setEnabled(False)
+        else:
+            past_sessions_btn.setEnabled(True)
+
+    state["stack"].currentChanged.connect(track_graphical_loader_change)
 
     return container
 
