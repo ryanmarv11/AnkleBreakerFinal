@@ -127,3 +127,15 @@ Things to implement after the meeting on 6/23
 3*) Remove previous screen button from the view of doubleclicking on the folder, just have the back button
 4) Implement warning/error handling for when a file is not found or cannot be accessed (for unflagging overwriting purposes)
 5*) Past Club Sessions should check to see if you're already there, if so then do nothing
+
+7/6
+1) Fix unflagging for stateside running
+2) Refactor
+       Unify imports
+       Remove unnecessary code
+       Clean up directory
+       Clean up git repository
+       Comment code
+3) Remove all mentions to reflagging
+4) Add more in depth debugging information, crash log?
+5) Implement a manual unflagging/reflagging in case this doesn't work?

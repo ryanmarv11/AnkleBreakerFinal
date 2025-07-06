@@ -1,54 +1,50 @@
+# Standard library imports
 import json
 import os
-import sys
-import shutil
-import pandas as pd
 import re
-
-
+import shutil
+import sys
+from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
-from collections import defaultdict 
-from datetime import datetime
 
-from PyQt6.QtCore import QDate, Qt, QObject, pyqtSignal, QEvent, QSize
-from PyQt6.QtGui import QIntValidator, QAction, QWheelEvent, QIcon, QColor
+# Third-party imports
+import pandas as pd
+
+# PyQt6 imports
+from PyQt6.QtCore import QDate, QObject, QEvent, Qt, QSize, pyqtSignal
+from PyQt6.QtGui import QAction, QIcon, QIntValidator, QColor
 from PyQt6.QtWidgets import (
     QApplication,
+    QButtonGroup,
+    QComboBox,
+    QDateEdit,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
+    QFormLayout,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
     QStackedWidget,
     QTabWidget,
-    QWidget,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
-    QHBoxLayout,
-    QButtonGroup,
-    QDateEdit,
-    QComboBox,
-    QLineEdit,
-    QTextEdit,
-    QFormLayout,
-    QMessageBox,
-    QScrollArea,
-    QFrame,
-    QTreeWidget,
-    QTreeWidgetItem,
     QTableWidget,
     QTableWidgetItem,
-    QHeaderView,
-    QGroupBox,
-    QMenuBar,
-    QMenu,
-    QListWidgetItem,
-    QListWidget,
-    QGridLayout,
-    QStyle,
-    QToolButton, 
-    QSizePolicy,
-
+    QTextEdit,
+    QToolButton,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QHBoxLayout,
+    QWidget,
 )
 
 
@@ -379,7 +375,6 @@ def update_last_opened_metadata(session_path: str):
 # ---------------------------------------------------------------------
 
 #This is the first screen that the user sees
-from datetime import datetime
 
 def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
 
@@ -1302,7 +1297,6 @@ def create_assign_status_screen(stack, state) -> QWidget:
         selected_file = file_dropdown.currentText()
 
         if selected_file == "View All":
-            from collections import defaultdict
             grouped_rows = defaultdict(list)
 
             for path in state["csv_paths"]:
@@ -1731,7 +1725,6 @@ def create_program_flow_tab(state: Dict, stack:QStackedWidget) -> QStackedWidget
 
 
 def create_flagged_sessions_tab(state: Dict) -> QWidget:
-    from PyQt6.QtCore import pyqtSignal, QObject
 
     class FlaggedTabSignals(QObject):
         fileDoubleClicked = pyqtSignal(str)
@@ -2422,8 +2415,6 @@ def load_session_from_folder(session_dir: str, stack: QStackedWidget, state: Dic
         QMessageBox.critical(parent_widget, "Load Failed", f"Could not load session:\n{e}")
 
 
-import os
-from PyQt6.QtWidgets import QMessageBox, QStackedWidget
 
 def reset_session(stack: QStackedWidget, state: Dict, parent: QWidget):
     reply = QMessageBox.question(
@@ -2631,12 +2622,6 @@ def create_main_window() -> QWidget:
     state["tabs"] = tabs
 
     program_tab = create_program_flow_tab(state, state["stack"])
-    def open_graphical_loader_screen():
-        scr = create_graphical_loader_screen(state["stack"], state)
-        if state["stack"].indexOf(scr) == -1:
-            state["stack"].addWidget(scr)
-        state["tabs"].setCurrentIndex(0)
-        state["stack"].setCurrentWidget(scr)
 
     tabs.addTab(program_tab, "Program")
     tabs.addTab(create_current_session_files_tab(state), "Current Session Files")
