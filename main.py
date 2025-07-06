@@ -46,7 +46,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QWidget,
 )
-
+#This is version number 743
 
 class AppSignals(QObject):
     sessionsChanged = pyqtSignal()   # new/edited/deleted session folders
@@ -95,7 +95,8 @@ def load_club_dates() -> Dict[str, List[str]]:
                     if club and date:
                         club_to_dates.setdefault(club, []).append(date)
             except Exception as e:
-                print(f"[ERROR] Failed to read metadata for session {f}: {e}")
+                print("This is an old error, currently being blocked for unflagging fixing")
+                #print(f"[ERROR] Failed to read metadata for session {f}: {e}")
     return club_to_dates
 
 def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidget:
@@ -242,7 +243,8 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
                     formatted_total = f"${net:.2f}" if isinstance(net, (int, float)) else "No total yet"
                     display_name = f"{folder} — {status_str} — total {formatted_total}"
                 except Exception as e:
-                    print(f"[ERROR] Could not read metadata for {folder}: {e}")
+                    print("This is an old error, currently being blocked for unflagging fixing")
+                #                    print(f"[ERROR] Could not read metadata for {folder}: {e}")
                     display_name = folder
                 parent_item = QTreeWidgetItem([display_name])
                 parent_item.setData(0, Qt.ItemDataRole.UserRole, session_path)
@@ -368,7 +370,8 @@ def update_last_opened_metadata(session_path: str):
             with open(meta_path, "w") as f:
                 json.dump(metadata, f, indent=2)
         except Exception as e:
-            print(f"[ERROR] Could not update last_opened for {session_path}: {e}")
+            print("This is an old error, currently being blocked for unflagging fixing")
+                #            print(f"[ERROR] Could not update last_opened for {session_path}: {e}")
 
 # ---------------------------------------------------------------------
 # Screens for Program Flow Tab
@@ -442,7 +445,8 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
             with open(meta_path, "w") as f:
                 json.dump(metadata, f, indent=2)
         except Exception as e:
-            print(f"[ERROR] Could not update last_opened for {session_path}: {e}")
+            print("This is an old error, currently being blocked for unflagging fixing")
+                #            print(f"[ERROR] Could not update last_opened for {session_path}: {e}")
 
     def determine_default_status(notes: str) -> str:
         n = str(notes).lower()
@@ -528,7 +532,8 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
                 last_opened = metadata.get("last_opened", "1970-01-01T00:00:00")
                 sessions_with_time.append((session_name, last_opened))
             except Exception as e:
-                print(f"[ERROR] Could not read metadata for {session_name}: {e}")
+                print("This is an old error, currently being blocked for unflagging fixing")
+                #                print(f"[ERROR] Could not read metadata for {session_name}: {e}")
 
         sessions_with_time.sort(key=lambda x: x[1], reverse=True)
 
@@ -541,7 +546,8 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
                     metadata = json.load(f)
                 paid_status = metadata.get("paid", False)
             except Exception as e:
-                print(f"[ERROR] Could not read metadata for {session_name}: {e}")
+                print("This is an old error, currently being blocked for unflagging fixing")
+                #                print(f"[ERROR] Could not read metadata for {session_name}: {e}")
                 paid_status = False
 
             status_text = "paid ✅" if paid_status else "unpaid ❌"
@@ -855,9 +861,11 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
     return screen
 
 def create_payment_summary_screen(stack, state) -> QWidget:
+    print("This is an old error, currently being blocked for unflagging fixing")
+    """
     print("[DEBUG] Status counts keys:", state.get("status_counts", {}).keys())
     print("[DEBUG] Fee schedule keys:", state.get("fee_schedule", {}).keys())
-
+    """
     screen = QWidget()
     layout = QVBoxLayout(screen)
 
@@ -889,7 +897,8 @@ def create_payment_summary_screen(stack, state) -> QWidget:
                         metadata = json.load(f)
                     club_name = metadata.get("club", "Club")
                 except Exception as e:
-                    print(f"[ERROR] Failed to read metadata: {e}")
+                    print("This is an old error, currently being blocked for unflagging fixing")
+                #                    print(f"[ERROR] Failed to read metadata: {e}")
 
         # ------------------------------
         # Table 1: Status Count Summary
@@ -1076,71 +1085,85 @@ def create_assign_status_screen(stack, state) -> QWidget:
                             csv_paths.append(path)
                             dataframes_dict[path] = df
                     except Exception as e:
-                        print(f"Error reading {path}: {e}")
+                        print("This is an old error, currently being blocked for unflagging fixing")
+                #                        print(f"Error reading {path}: {e}")
         state["csv_paths"] = csv_paths
         state["dataframes"] = dataframes_dict
-
+    print("This is an old error, currently being blocked for unflagging fixing")
+    """
     print("DEBUG CSV Paths:", csv_paths)
     print("DEBUG DataFrames:", [list(df.columns) for df in dataframes])
-
+    """
     # Now continue with original function logic...
     state["status_counts"] = {}
     def propagate_file_rename(old_path: str, new_path: str, state: Dict, stack: QStackedWidget):
+                    print("This is an old error, currently being blocked for unflagging fixing")
+                    """
                     print("[DEBUG] Final csv_paths in state:", state["csv_paths"])
                     print("[DEBUG] Final fee_schedule keys:", state.get("fee_schedule", {}).keys())
                     print("[DEBUG] Final status_counts keys:", state.get("status_counts", {}).keys())
-
+                    """
                     old_fname = os.path.basename(old_path)
                     new_fname = os.path.basename(new_path)
 
                     # Update csv_paths
                     state["csv_paths"] = [new_path if p == old_path else p for p in state["csv_paths"]]
+                    print(f"[PROPAGATE] Updated csv_paths list")
 
                     # Update dataframes
                     if old_path in state["dataframes"]:
+                        print(f"[PROPAGATE] Updated dataframes: {old_path} → {new_path}")
+
                         state["dataframes"][new_path] = state["dataframes"].pop(old_path)
 
                     # Update status_counts
                     if "status_counts" in state and old_fname in state["status_counts"]:
                         state["status_counts"][new_fname] = state["status_counts"].pop(old_fname)
+                        print(f"[PROPAGATE] Updated status_counts: {old_fname} → {new_fname}")
 
                     # Update fee_schedule
                     if "fee_schedule" in state and old_fname in state["fee_schedule"]:
                         state["fee_schedule"][new_fname] = state["fee_schedule"].pop(old_fname)
-
-                    # Refresh screens
+                        print(f"[PROPAGATE] Updated fee_schedule: {old_fname} → {new_fname}")
                     # Refresh screens
                     for screen_index in [2, 3, 4]:
                         widget = stack.widget(screen_index)
 
                         if screen_index == 2 and hasattr(widget, "refresh_file_dropdown"):
                             widget.refresh_file_dropdown()
-                            print("[DEBUG] Refreshed assign status screen dropdown and label")
+                            print("This is an old error, currently being blocked for unflagging fixing")
+                #                            print("[DEBUG] Refreshed assign status screen dropdown and label")
                         elif screen_index == 3:
                             new_screen = create_fee_schedule_screen(stack, state)
                             stack.removeWidget(widget)
                             stack.insertWidget(3, new_screen)
-                            print("[DEBUG] Recreated fee schedule screen at index 3 after rename")
+                            print("This is an old error, currently being blocked for unflagging fixing")
+                #                            print("[DEBUG] Recreated fee schedule screen at index 3 after rename")
                         elif screen_index == 4:
                             summary_screen = create_payment_summary_screen(stack, state)
                             stack.removeWidget(stack.widget(4))
                             stack.insertWidget(4, summary_screen)
-                            print("[DEBUG] Recreated payment summary screen at index 4 after rename")
+                            print("This is an old error, currently being blocked for unflagging fixing")
+                #                            print("[DEBUG] Recreated payment summary screen at index 4 after rename")
                         else:
-                            print(f"[WARNING] Screen at index {screen_index} does not support refresh.")
+                            print("This is an old error, currently being blocked for unflagging fixing")
+                #                            print(f"[WARNING] Screen at index {screen_index} does not support refresh.")
 
                     # Emit signal to trigger any reactive UI
                     state["signals"].sessionsChanged.emit()  # ✅ triggers QTreeWidgets
                     state["signals"].dataChanged.emit()
 
     def update_flag_state_for_file(csv_path, state, stack):
+        
         df = state["dataframes"].get(csv_path)
         if df is None:
-            print(f"[WARNING] No dataframe found for: {csv_path}")
+            print("This is an old error, currently being blocked for unflagging fixing")
+                #            print(f"[WARNING] No dataframe found for: {csv_path}")
             return
 
         still_flagged = (df["current_status"] == "other").any()
         is_flagged_file = "-flag.csv" in os.path.basename(csv_path)
+        print(f"[UNFLAG CHECK] File: {csv_path}, is_flagged_file={is_flagged_file}, still_flagged={still_flagged}")
 
         session_path = os.path.dirname(os.path.dirname(csv_path))
         csv_dir = os.path.join(session_path, "csv")
@@ -1159,17 +1182,23 @@ def create_assign_status_screen(stack, state) -> QWidget:
             metadata = {}
 
         if is_flagged_file and not still_flagged:
+            if not (os.path.exists(csv_path) and os.access(csv_path, os.W_OK)):
+                QMessageBox.warning(None, "File Locked", 
+                    f"The file '{csv_path}' is not accessible.\n\nPlease close any programs or File Explorer windows that may be using it, then try again.")
+                return
+
             # --------------------------------------------
             # Step 1: Rename the file
             # --------------------------------------------
             if os.path.exists(csv_path):
                 try:
+                    print(f"[RENAME FILE] From {csv_path} → {unflagged_path} (exists: {os.path.exists(csv_path)})")
                     os.rename(csv_path, unflagged_path)
-                    print(f"[RENAME] {csv_path} → {unflagged_path}")
+                    print(f"[RENAME SUCCESS] File renamed to: {unflagged_path}")
                 except Exception as e:
-                    print(f"[ERROR] Failed to rename file: {e}")
+                    print(f"[RENAME ERROR] Failed to rename file: {e}")
             else:
-                print(f"[WARNING] File to rename not found: {csv_path}")
+                print(f"[RENAME WARNING] File to rename not found: {csv_path}")
 
             # --------------------------------------------
             # Step 2: Update metadata (in memory only)
@@ -1181,28 +1210,19 @@ def create_assign_status_screen(stack, state) -> QWidget:
             if "flagged_files" in metadata and old_basename in metadata["flagged_files"]:
                 metadata["flagged_files"].remove(old_basename)
 
-            metadata["flagged"] = False
+            metadata["flagged"] = bool(metadata.get("flagged_files"))
+
 
             # --------------------------------------------
             # Step 3: Update state paths
             # --------------------------------------------
+            print(f"[STATE UPDATE] Calling propagate_file_rename with {csv_path} → {unflagged_path}")
             propagate_file_rename(csv_path, unflagged_path, state, stack)
 
             # --------------------------------------------
             # Step 4: Delete any leftover -flag.csv files
             # --------------------------------------------
-            if os.path.exists(csv_dir):
-                for fname in os.listdir(csv_dir):
-                    if fname.endswith("-flag.csv"):
-                        full_path = os.path.join(csv_dir, fname)
-                        if full_path not in state["csv_paths"]:
-                            try:
-                                os.remove(full_path)
-                                print(f"[CLEANUP] Removed leftover flagged file: {full_path}")
-                            except Exception as e:
-                                print(f"[WARNING] Could not delete leftover flagged file: {e}")
-            else:
-                print(f"[SKIP] csv_dir no longer exists: {csv_dir}")
+
 
             # --------------------------------------------
             # Step 5: Rename the session folder if needed
@@ -1211,8 +1231,16 @@ def create_assign_status_screen(stack, state) -> QWidget:
                 new_session_path = original_session.replace("-flag", "")
                 if os.path.exists(original_session) and not os.path.exists(new_session_path):
                     try:
+                        if not os.access(original_session, os.W_OK):
+                            QMessageBox.warning(None, "Folder Locked", 
+                                f"The folder '{original_session}' is not accessible.\n\nPlease close any programs or File Explorer windows that may be using it, then try again.")
+                            return
                         os.rename(original_session, new_session_path)
-                        print(f"[FOLDER RENAME] {original_session} → {new_session_path}")
+
+                        print(f"[SESSION RENAME] Folder: {original_session} → {new_session_path}")
+
+                        print("This is an old error, currently being blocked for unflagging fixing")
+                #                        print(f"[FOLDER RENAME] {original_session} → {new_session_path}")
                         state["current_session"] = new_session_path
 
                         # Update all paths in state
@@ -1234,13 +1262,11 @@ def create_assign_status_screen(stack, state) -> QWidget:
                         session_path = new_session_path
                         meta_path = os.path.join(session_path, "metadata", "metadata.json")
 
-                        # Delete the old session folder if it still exists
-                        if os.path.exists(original_session):
-                            shutil.rmtree(original_session)
-                            print(f"[CLEANUP] Deleted old folder: {original_session}")
+                        #The old logic for deleting a folder after unflagging used to be here, but it died (1915 July 6 RBM)
 
                     except Exception as e:
-                        print(f"[ERROR] Failed to rename or clean up session folder: {e}")
+                        print("This is an old error, currently being blocked for unflagging fixing")
+                #                        print(f"[ERROR] Failed to rename or clean up session folder: {e}")
 
             # --------------------------------------------
             # Step 6: Save metadata to the correct path
@@ -1249,8 +1275,11 @@ def create_assign_status_screen(stack, state) -> QWidget:
                 os.makedirs(os.path.dirname(meta_path), exist_ok=True)
                 with open(meta_path, "w") as f:
                     json.dump(metadata, f, indent=2)
+                print(f"[METADATA] Saved. flagged={metadata.get('flagged')}, flagged_files={metadata.get('flagged_files', [])}")
+
             except Exception as e:
-                print(f"[ERROR] Failed to write updated metadata: {e}")
+                print("This is an old error, currently being blocked for unflagging fixing")
+                #                print(f"[ERROR] Failed to write updated metadata: {e}")
 
             # Final UI & signal refresh
             if callable(state.get("refresh_current_session_label")):
@@ -1263,9 +1292,11 @@ def create_assign_status_screen(stack, state) -> QWidget:
             assign_screen = stack.widget(2)
             if hasattr(assign_screen, "session_label"):
                 assign_screen.session_label.setText("Status Assignment FLAGGED")
-            print("[INFO] File should be re-flagged, but that flow isn’t implemented.")
+                print("This is an old error, currently being blocked for unflagging fixing")
+                #            print("[INFO] File should be re-flagged, but that flow isn’t implemented.")
         else:
-            print("[INFO] No rename or cleanup necessary.")
+            print("This is an old error, currently being blocked for unflagging fixing")
+                #            print("[INFO] No rename or cleanup necessary.")
 
     def update_other_display():
         content = ""
@@ -1360,17 +1391,20 @@ def create_assign_status_screen(stack, state) -> QWidget:
 
         # Single-file view
         if df_index == 0 or df_index > len(dataframes):
-            print(f"[WARNING] Invalid df_index={df_index} for dataframes list of size {len(dataframes)}")
+            print("This is an old error, currently being blocked for unflagging fixing")
+                #            print(f"[WARNING] Invalid df_index={df_index} for dataframes list of size {len(dataframes)}")
             return
 
         try:
             path = state["csv_paths"][df_index - 1]
             df = state["dataframes"][path]
         except IndexError:
-            print(f"[ERROR] df_index={df_index} is out of range for csv_paths: {state['csv_paths']}")
+            print("This is an old error, currently being blocked for unflagging fixing")
+                #            print(f"[ERROR] df_index={df_index} is out of range for csv_paths: {state['csv_paths']}")
             return
         except KeyError:
-            print(f"[ERROR] No dataframe found for path: {path}")
+            print("This is an old error, currently being blocked for unflagging fixing")
+                #            print(f"[ERROR] No dataframe found for path: {path}")
             return
 
 
@@ -1396,11 +1430,14 @@ def create_assign_status_screen(stack, state) -> QWidget:
                         try:
                             df_index = session_csvs.index(selected_file)
                         except ValueError:
-                            print(f"[ERROR] Could not find selected file {selected_file} in session_csvs")
+                            print("This is an old error, currently being blocked for unflagging fixing")
+                #                            print(f"[ERROR] Could not find selected file {selected_file} in session_csvs")
                             return
 
                         path = state["csv_paths"][df_index]
                         df.at[row_idx, "current_status"] = status
+                        print(f"[CHECK] Remaining 'other' statuses in file: {(df['current_status'] == 'other').sum()}")
+                        print(f"[CLICK] Changed status for {row['Name']} in {selected_file} to {status}")
                         update_other_display()
                         update_status_counts()
                         update_flag_state_for_file(path, state, stack)
@@ -1428,14 +1465,16 @@ def create_assign_status_screen(stack, state) -> QWidget:
         for i, path in enumerate(state["csv_paths"]):
             df = state["dataframes"].get(path)
             if df is None:
-                print(f"[WARNING] No DataFrame found for path: {path}")
+                print("This is an old error, currently being blocked for unflagging fixing")
+                #                print(f"[WARNING] No DataFrame found for path: {path}")
                 continue
 
             folder = os.path.dirname(path)
             try:
                 os.makedirs(folder, exist_ok=True)
                 df.to_csv(path, index=False)
-                print(f"[SAVED] {path} with statuses:\n{df[['Name', 'current_status']]}")
+                print("This is an old error, currently being blocked for unflagging fixing")
+                #                print(f"[SAVED] {path} with statuses:\n{df[['Name', 'current_status']]}")
 
             except OSError as e:
                 if "non-existent directory" in str(e) and "-flag" in folder:
@@ -1488,7 +1527,8 @@ def create_assign_status_screen(stack, state) -> QWidget:
             file_dropdown.setCurrentIndex(index)
             update_person_buttons(index)
         else:
-            print(f"[WARNING] Unexpected dropdown text: {selected_text}")
+            print("This is an old error, currently being blocked for unflagging fixing")
+                #            print(f"[WARNING] Unexpected dropdown text: {selected_text}")
             update_person_buttons(0)
 
         update_other_display()
@@ -1809,7 +1849,8 @@ def create_flagged_sessions_tab(state: Dict) -> QWidget:
                     tree.addTopLevelItem(parent_item)
 
             except Exception as e:
-                print(f"Error reading {metadata_path}: {e}")
+                print("This is an old error, currently being blocked for unflagging fixing")
+                #                print(f"Error reading {metadata_path}: {e}")
 
     def on_tree_item_selected(item, _prev=None):
         nonlocal selected_session, selected_file, df
@@ -1845,10 +1886,12 @@ def create_flagged_sessions_tab(state: Dict) -> QWidget:
 
                 edit_box.setEnabled(True)
             else:
-                print(f"[ERROR] 'Name' column missing in {full_path}")
+                print("This is an old error, currently being blocked for unflagging fixing")
+                #                print(f"[ERROR] 'Name' column missing in {full_path}")
 
         except Exception as e:
-            print(f"[ERROR] Failed to load {full_path}: {e}")
+            print("This is an old error, currently being blocked for unflagging fixing")
+                #            print(f"[ERROR] Failed to load {full_path}: {e}")
             df = None
             edit_box.setEnabled(False)
 
@@ -2153,27 +2196,33 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
 
     def load_club_session_file_structure():
         structure = defaultdict(lambda: defaultdict(list))
-        print(f"[DEBUG] Scanning sessions in: {SESSIONS_DIR}")
+        print("This is an old error, currently being blocked for unflagging fixing")
+                #        print(f"[DEBUG] Scanning sessions in: {SESSIONS_DIR}")
         for session_name in os.listdir(SESSIONS_DIR):
             session_path = os.path.join(SESSIONS_DIR, session_name)
-            print(f"  ├── Checking session: {session_name}")
+            print("This is an old error, currently being blocked for unflagging fixing")
+                #            print(f"  ├── Checking session: {session_name}")
 
             if not os.path.isdir(session_path):
-                print("     [SKIP] Not a directory")
+                print("This is an old error, currently being blocked for unflagging fixing")
+                #                print("     [SKIP] Not a directory")
                 continue
 
             try:
                 # Extract club name from session folder name
                 parts = session_name.split("-")
                 if len(parts) < 3:
-                    print("     [SKIP] Invalid session name format")
+                    print("This is an old error, currently being blocked for unflagging fixing")
+                #                    print("     [SKIP] Invalid session name format")
                     continue
                 club = parts[1]
-                print(f"     [CLUB] Parsed club: {club}")
+                print("This is an old error, currently being blocked for unflagging fixing")
+                #                print(f"     [CLUB] Parsed club: {club}")
 
                 csv_path = os.path.join(session_path, "csv")
                 if not os.path.isdir(csv_path):
-                    print("     [SKIP] Missing csv folder")
+                    print("This is an old error, currently being blocked for unflagging fixing")
+                #                    print("     [SKIP] Missing csv folder")
                     continue
 
                 for fname in os.listdir(csv_path):
@@ -2183,15 +2232,18 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
                             structure[club][session_name].append((session_path, fname))
 
             except Exception as e:
-                print(f"[ERROR] Skipping session {session_name}: {e}")
+                print("This is an old error, currently being blocked for unflagging fixing")
+                #                print(f"[ERROR] Skipping session {session_name}: {e}")
                 continue
 
-        print(f"[DEBUG] Final club-session-file structure:\n{structure}")
+        print("This is an old error, currently being blocked for unflagging fixing")
+                #        print(f"[DEBUG] Final club-session-file structure:\n{structure}")
         return structure
 
     def refresh_dropdowns():
         nonlocal club_session_file_map
-        print("[REFRESH] Refreshing Browse All Files tab")
+        print("This is an old error, currently being blocked for unflagging fixing")
+                #        print("[REFRESH] Refreshing Browse All Files tab")
         club_session_file_map = load_club_session_file_structure()
 
         club_dropdown.blockSignals(True)
@@ -2225,7 +2277,8 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
         table.setColumnCount(0)
 
         selected_club = club_dropdown.currentText()
-        print(f"[UI] Selected club: {selected_club}")
+        print("This is an old error, currently being blocked for unflagging fixing")
+                #        print(f"[UI] Selected club: {selected_club}")
         if selected_club in club_session_file_map:
             sessions = sorted(club_session_file_map[selected_club].keys())
             session_dropdown.addItems(sessions)
@@ -2244,7 +2297,8 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
 
         selected_club = club_dropdown.currentText()
         selected_session = session_dropdown.currentText()
-        print(f"[UI] Selected session: {selected_session}")
+        print("This is an old error, currently being blocked for unflagging fixing")
+                #        print(f"[UI] Selected session: {selected_session}")
         if selected_club in club_session_file_map and selected_session in club_session_file_map[selected_club]:
             file_names = [f for (_, f) in club_session_file_map[selected_club][selected_session]]
             file_dropdown.addItems(file_names)
@@ -2258,7 +2312,8 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
         selected_club = club_dropdown.currentText()
         selected_session = session_dropdown.currentText()
         selected_file = file_dropdown.currentText()
-        print(f"[UI] Selected file: {selected_file}")
+        print("This is an old error, currently being blocked for unflagging fixing")
+                #        print(f"[UI] Selected file: {selected_file}")
         if not (selected_club and selected_session and selected_file):
             return
         for folder, fname in club_session_file_map[selected_club][selected_session]:
@@ -2281,15 +2336,18 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
                     club = meta.get("club")
 
             if not club or club not in club_session_file_map:
-                print(f"[WARN] Club not found: {club}")
+                print("This is an old error, currently being blocked for unflagging fixing")
+                #                print(f"[WARN] Club not found: {club}")
                 return
             if session_name not in club_session_file_map[club]:
-                print(f"[WARN] Session not found: {session_name}")
+                print("This is an old error, currently being blocked for unflagging fixing")
+                #                print(f"[WARN] Session not found: {session_name}")
                 return
             file = path.name
             files = [f for (_, f) in club_session_file_map[club][session_name]]
             if file not in files:
-                print(f"[WARN] File not found: {file}")
+                print("This is an old error, currently being blocked for unflagging fixing")
+                #                print(f"[WARN] File not found: {file}")
                 return
 
             club_dropdown.blockSignals(True)
@@ -2308,7 +2366,8 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
             file_dropdown.blockSignals(False)
 
         except Exception as e:
-            print(f"[ERROR] Failed to load file from path: {e}")
+            print("This is an old error, currently being blocked for unflagging fixing")
+                #            print(f"[ERROR] Failed to load file from path: {e}")
 
     def connect_flagged_tab_signal():
         signals = state.get("flagged_tab_signals")
@@ -2403,7 +2462,8 @@ def load_session_from_folder(session_dir: str, stack: QStackedWidget, state: Dic
                 state["status_counts"][fname] = counts
 
             except Exception as e:
-                print(f"[ERROR] Failed to load CSV {path}: {e}")
+                print("This is an old error, currently being blocked for unflagging fixing")
+                #                print(f"[ERROR] Failed to load CSV {path}: {e}")
 
         # Load and activate Assign Status screen
         new_assign_screen = create_assign_status_screen(stack, state)
@@ -2672,7 +2732,8 @@ def main() -> None:
         with open(qss_path, "r") as f:
             app.setStyleSheet(f.read())
     except Exception as e:
-        print(f"Warning: Failed to load stylesheet ({qss_path}): {e}")
+        print("This is an old error, currently being blocked for unflagging fixing")
+                #        print(f"Warning: Failed to load stylesheet ({qss_path}): {e}")
 
     main_widget = create_main_window()
 

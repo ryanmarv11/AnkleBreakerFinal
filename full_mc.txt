@@ -1,0 +1,7 @@
+1. Go through the entire codebase and remove all existing debugging or print statements to eliminate noise and confusion. Then, add new, relevant debugging messages at every critical part of the unflagging logic: file rename, folder rename, metadata read/write, and state/UI refresh. These will be used to trace and fix the issue efficiently.
+2. Create a set of controlled test cases to simulate different unflagging scenarios. This includes sessions with multiple flagged files, sessions with only one flagged file, already unflagged sessions, sessions missing metadata, etc. These cases will be used uniformly across all environments to ensure consistent results.
+3. Run the tests in the following environments:
+   - .py on Windows desktop (stateside)
+   - .exe on Windows desktop (with and without admin privileges)
+   - .py and .exe on Mac
+   - .exe on Windows laptop (with and without admin privileges)
