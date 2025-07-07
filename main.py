@@ -79,6 +79,19 @@ def save_global_metadata(data: dict):
 def is_file_flagged(df: pd.DataFrame) -> bool:
     return "current_status" in df.columns and (df["current_status"] == "other").any()
 
+def go_back_to_previous(state: Dict):
+    tab_index = state.get("previous_tab_index", 0)
+    screen_index = state.get("previous_screen_index", 0)
+    state["tabs"].setCurrentIndex(tab_index)
+    if tab_index == 0:
+        state["stack"].setCurrentIndex(screen_index)
+
+def go_back_to_program(state: Dict):
+    state["tabs"].setCurrentIndex(0)  # Program tab
+    screen_index = state.get("previous_program_screen", 0)
+    state["stack"].setCurrentIndex(screen_index)
+
+
 def load_club_dates() -> Dict[str, List[str]]:
     club_to_dates = {}
     for f in os.listdir(SESSIONS_DIR):
@@ -108,27 +121,22 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
     top_bar = QHBoxLayout()
     top_bar.setContentsMargins(0, 0, 0, 0)
 
-    back_to_welcome_btn = QToolButton()
-    back_to_welcome_btn.setText("← Previous Screen")
-    back_to_welcome_btn.setStyleSheet("""
-        QToolButton {
-            background-color: #5b7db1;
-            color: white;
-            border-radius: 6px;
-            padding: 4px 10px;
-        }
-        QToolButton:hover {
-            background-color: #486a9c;
-        }
-    """)
-    def go_back_to_previous():
-        previous = state.get("previous_screen_index", 0)
-        state["tabs"].setCurrentIndex(0)
-        state["stack"].setCurrentIndex(previous)
-    back_to_welcome_btn.clicked.connect(go_back_to_previous)
+    back_to_previous_btn = QToolButton()
+    back_to_previous_btn.setText("← Previous Screen")
+    back_to_previous_btn.setStyleSheet("font-size: 16px; padding: 4px;")
+    back_to_previous_btn.clicked.connect(lambda: go_back_to_previous(state))
+    top_bar.addWidget(back_to_previous_btn)
+    
+    back_to_previous_btn.clicked.connect(go_back_to_previous)
 
-    top_bar.addWidget(back_to_welcome_btn)
+    top_bar.addWidget(back_to_previous_btn)
     top_bar.addStretch()
+    # Right: Back to Program button
+    back_to_program_btn = QToolButton()
+    back_to_program_btn.setText("Back to Program")
+    back_to_program_btn.setStyleSheet("font-size: 16px; padding: 4px;")
+    back_to_program_btn.clicked.connect(lambda: go_back_to_program(state))
+    top_bar.addWidget(back_to_program_btn)
     layout.addLayout(top_bar)
 
     # Header
@@ -197,7 +205,8 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
     def show_club_buttons():
         header.setText("Select a Club")
         back_btn.setVisible(False)
-        back_to_welcome_btn.setVisible(True)  # ✅ Show only at top-level
+        back_to_previous_btn.setVisible(True)  # ✅ Show only at top-level
+        back_to_program_btn.setVisible(True)
         content_widget.setVisible(True)
         tree.setVisible(False)
 
@@ -221,7 +230,8 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
     def show_sessions_for_club(club: str):
         header.setText(f"Sessions for {club}")
         back_btn.setVisible(True)
-        back_to_welcome_btn.setVisible(False)  # ✅ Hide when inside a club
+        back_to_previous_btn.setVisible(False)  # ✅ Hide when inside a club
+        back_to_program_btn.setVisible(False)
         content_widget.setVisible(False)
         tree.setVisible(True)
 
@@ -2521,7 +2531,18 @@ def reset_session(stack: QStackedWidget, state: Dict, parent: QWidget):
 
     # Save all DataFrames, with fallback if folder was renamed due to unflagging
     for i, path in enumerate(state.get("csv_paths", [])):
-        df = state["dataframes"][path]
+        dataframes = state.get("dataframes", {})
+        df = None
+        if isinstance(dataframes, dict):
+            df = dataframes.get(path)
+        elif isinstance(dataframes, list):
+            try:
+                df = dataframes[i]
+            except IndexError:
+                continue
+        if df is None:
+            continue
+
         folder = os.path.dirname(path)
         try:
             os.makedirs(folder, exist_ok=True)
@@ -2672,12 +2693,19 @@ def create_main_window() -> QWidget:
     past_sessions_btn.setStyleSheet(shared_button_style)
     def launch_graphical_loader():
         state["previous_screen_index"] = state["stack"].currentIndex()
+        state["previous_tab_index"] = state["tabs"].currentIndex()
+        state["previous_program_screen"] = state["stack"].currentIndex()  # Needed for Back to Program
+
+
         graphical_screen = create_graphical_loader_screen(state["stack"], state)
         if state["stack"].indexOf(graphical_screen) == -1:
             state["stack"].addWidget(graphical_screen)
         state["tabs"].setCurrentIndex(0)
         state["stack"].setCurrentWidget(graphical_screen)
+        past_sessions_btn.setEnabled(False)  # 🚫 Disable button while screen is active
+
     past_sessions_btn.clicked.connect(launch_graphical_loader)
+
 
     top_bar.addWidget(anklebar_btn)
     top_bar.addWidget(past_sessions_btn)
@@ -2699,7 +2727,7 @@ def create_main_window() -> QWidget:
     state["refresh_current_session_label"] = refresh_session_label
     state["_refresh_crud_banners"].append(refresh_session_label)
     refresh_session_label()
-
+#version 'Please dear god I just want doritos'
     # --- Stack + Tabs ---
     stack_wrapper = QWidget()
     stack_layout = QVBoxLayout(stack_wrapper)
