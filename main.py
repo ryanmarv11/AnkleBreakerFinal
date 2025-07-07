@@ -480,7 +480,7 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
                 df = pd.read_csv(p, skiprows=1, header=None)
                 df.columns = ["Name", "Email", "Phone Number", "Status", "Registration Time", "Notes"]
                 df["default_status"] = df["Notes"].apply(determine_default_status)
-                df["AnkleBreaker Notes"] = ""
+                df["AnkleBreaker notes"] = ""
                 dfs.append(df)
             except Exception as exc:
                 errors.append(f"{p}: {exc}")
@@ -812,8 +812,8 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
                     df["default_status"] = df["Notes"].apply(determine_default_status)
                 if "current_status" not in df.columns:
                     df["current_status"] = df["default_status"]
-                if "AnkleBreaker Notes" not in df.columns:
-                    df["AnkleBreaker Notes"] = ""
+                if "AnkleBreaker notes" not in df.columns:
+                    df["AnkleBreaker notes"] = ""
                 rebuilt_dataframes[p] = df
             except Exception as e:
                 print(f"[ERROR] Failed to rebuild df from {p}: {e}")
@@ -2440,9 +2440,6 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
 # Main window builder
 # ---------------------------------------------------------------------
 def load_session_from_folder(session_dir: str, stack: QStackedWidget, state: Dict, parent_widget: QWidget):
-    # This function assumes session_dir is already selected.
-    # In the caller, use: start_dir = SESSIONS_DIR if os.path.exists(SESSIONS_DIR) else ANKLEBREAKER_DATA_DIR
-
     metadata_path = os.path.join(session_dir, "metadata", "metadata.json")
     csv_dir = os.path.join(session_dir, "csv")
 
@@ -2467,10 +2464,12 @@ def load_session_from_folder(session_dir: str, stack: QStackedWidget, state: Dic
                 return "manual"
             elif "not over capacity: register" in n:
                 return "regular"
+            elif "no show" in n:
+                return "no_show"
             else:
                 return "other"
 
-        # Set metadata and trigger banners
+        # Set session metadata
         state["current_session"] = session_dir
         for fn in state.get("_refresh_crud_banners", []):
             fn()
@@ -2487,16 +2486,18 @@ def load_session_from_folder(session_dir: str, stack: QStackedWidget, state: Dic
         for fname in filenames:
             path = os.path.join(csv_dir, fname)
             try:
+                # Force expected structure
                 df = pd.read_csv(path)
 
-                if "default_status" not in df.columns:
-                    df["default_status"] = df["Notes"].apply(determine_default_status)
+                # Only apply header names if they’re not already correct
+                expected_headers = ["Name", "Email", "Phone Number", "Status", "Registration Time", "Notes"]
+                if list(df.columns[:6]) != expected_headers:
+                    df.columns = expected_headers
 
-                if "current_status" not in df.columns:
-                    df["current_status"] = df["default_status"]
 
-                if "AnkleBreaker Notes" not in df.columns:
-                    df["AnkleBreaker Notes"] = ""
+                df["default_status"] = df["Notes"].apply(determine_default_status)
+                df["current_status"] = df["default_status"]
+                df["AnkleBreaker notes"] = ""
 
                 state["csv_paths"].append(path)
                 state["dataframes"][path] = df
@@ -2505,8 +2506,7 @@ def load_session_from_folder(session_dir: str, stack: QStackedWidget, state: Dic
                 state["status_counts"][fname] = counts
 
             except Exception as e:
-                print("This is an old error, currently being blocked for unflagging fixing")
-                #                print(f"[ERROR] Failed to load CSV {path}: {e}")
+                print(f"[ERROR] Failed to load CSV {path}: {e}")
 
         # Load and activate Assign Status screen
         new_assign_screen = create_assign_status_screen(stack, state)
