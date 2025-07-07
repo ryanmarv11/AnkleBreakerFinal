@@ -1290,7 +1290,6 @@ def create_assign_status_screen(stack, state) -> QWidget:
                     os.rename(original_session, new_session_path)
                     print(f"[SESSION RENAME] Folder: {original_session} → {new_session_path}")
                     state["current_session"] = new_session_path
-#Take your finger out of my version string 1234567
                     # Update all state paths
                     state["csv_paths"] = [p.replace(original_session, new_session_path) for p in state["csv_paths"]]
                     state["dataframes"] = {
@@ -1465,6 +1464,8 @@ def create_assign_status_screen(stack, state) -> QWidget:
 
                         # Update status in memory
                         df.at[row_idx, "current_status"] = status
+                        df.to_csv(path, index=False)
+
 
                         print(f"[CLICK] Changed status for {df.at[row_idx, 'Name']} in {selected_file} to {status}")
                         print(f"[CHECK] Remaining 'other' statuses in file: {(df['current_status'] == 'other').sum()}")
