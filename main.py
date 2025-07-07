@@ -46,7 +46,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QWidget,
 )
-#This is version number 743
+
 
 class AppSignals(QObject):
     sessionsChanged = pyqtSignal()   # new/edited/deleted session folders
@@ -268,7 +268,6 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
                 btn.setEnabled(False)
 
     tree.itemClicked.connect(on_tree_item_clicked)
-
     def confirm_and_load_session(item):
         session_path = item.data(0, Qt.ItemDataRole.UserRole)
         reply = QMessageBox.question(
@@ -772,7 +771,10 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
                 suffix += 1
 
             os.rename(session_path, final_session_path)
+            new_paths = [str(final_session_path / "csv" / os.path.basename(p)) for p in new_paths]
             session_path = final_session_path
+            state["csv_paths"] = new_paths
+
 
         metadata = {
             "club": club_name,
@@ -790,7 +792,24 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
 
         state["current_session"] = str(session_path)
         state["csv_paths"] = new_paths
-        state["dataframes"] = dict(zip(new_paths, state["dataframes"]))  # <-- match paths to DataFrames
+
+        # Force rebuild of dataframes to avoid UI issues
+        rebuilt_dataframes = {}
+        for p in new_paths:
+            try:
+                df = pd.read_csv(p)
+                if "default_status" not in df.columns:
+                    df["default_status"] = df["Notes"].apply(determine_default_status)
+                if "current_status" not in df.columns:
+                    df["current_status"] = df["default_status"]
+                if "AnkleBreaker Notes" not in df.columns:
+                    df["AnkleBreaker Notes"] = ""
+                rebuilt_dataframes[p] = df
+            except Exception as e:
+                print(f"[ERROR] Failed to rebuild df from {p}: {e}")
+
+        state["dataframes"] = rebuilt_dataframes
+
         for fn in state.get("_refresh_crud_banners", []):
             fn()
         state["signals"].sessionsChanged.emit()
@@ -1006,8 +1025,11 @@ def create_payment_summary_screen(stack, state) -> QWidget:
 #This is the third scrren that the user sees and is the first step after a session is created
 #A user cannot backtrack past this screen
 def create_assign_status_screen(stack, state) -> QWidget:
+
     screen = QWidget()
     main_layout = QHBoxLayout(screen)
+    session_csvs = []
+    dataframes = []
     state["_wheel_filter"] = state.get("_wheel_filter") or WheelEventFilter()
 
     # Left layout
@@ -1049,17 +1071,28 @@ def create_assign_status_screen(stack, state) -> QWidget:
     right_layout.addWidget(other_display)
     # Get current session folder
     current_session = state.get("current_session")
-    csv_paths = state.get("csv_paths", [])
+    # Force-rebuild csv_paths using current session folder, not stale copy
+    csv_paths = []
+    csv_dir = os.path.join(state.get("current_session", ""), "csv")
+    if os.path.exists(csv_dir):
+        for fname in sorted(os.listdir(csv_dir)):
+            if fname.endswith(".csv"):
+                csv_paths.append(os.path.join(csv_dir, fname))
+    state["csv_paths"] = csv_paths
+
     dataframes_dict = state.get("dataframes", {})
 
     # NEW: Try using state values if already populated
     if csv_paths and isinstance(dataframes_dict, dict) and all(p in dataframes_dict for p in csv_paths):
-        session_csvs = [os.path.basename(p) for p in csv_paths]
-        dataframes = [dataframes_dict[p] for p in csv_paths]
+        session_csvs.clear()
+        dataframes.clear()
+        session_csvs.extend([os.path.basename(p) for p in csv_paths])
+        dataframes.extend([dataframes_dict[p] for p in csv_paths])
     else:
+        session_csvs.clear()
+        dataframes.clear()
+
         # Fallback to loading from disk
-        session_csvs = []
-        dataframes = []
         if current_session and os.path.exists(current_session):
             csv_dir = os.path.join(current_session, "csv")
         else:
@@ -1080,10 +1113,11 @@ def create_assign_status_screen(stack, state) -> QWidget:
                         if "default_status" in df.columns:
                             if "current_status" not in df.columns:
                                 df["current_status"] = df["default_status"]
-                            dataframes.append(df)
-                            session_csvs.append(fname)
-                            csv_paths.append(path)
-                            dataframes_dict[path] = df
+                            if path not in csv_paths:
+                                dataframes.append(df)
+                                session_csvs.append(fname)
+                                dataframes_dict[path] = df
+
                     except Exception as e:
                         print("This is an old error, currently being blocked for unflagging fixing")
                 #                        print(f"Error reading {path}: {e}")
@@ -1154,149 +1188,143 @@ def create_assign_status_screen(stack, state) -> QWidget:
                     state["signals"].dataChanged.emit()
 
     def update_flag_state_for_file(csv_path, state, stack):
-        
+
+        # Step 0: Normalize csv_path to current state
+        # Step 0: Normalize csv_path to match real path in state
+        for p in state["csv_paths"]:
+            if os.path.basename(p) == os.path.basename(csv_path):
+                csv_path = p
+                break
+
         df = state["dataframes"].get(csv_path)
         if df is None:
-            print("This is an old error, currently being blocked for unflagging fixing")
-                #            print(f"[WARNING] No dataframe found for: {csv_path}")
+            print("[WARNING] No dataframe found for path:", csv_path)
             return
 
         still_flagged = (df["current_status"] == "other").any()
         is_flagged_file = "-flag.csv" in os.path.basename(csv_path)
         print(f"[UNFLAG CHECK] File: {csv_path}, is_flagged_file={is_flagged_file}, still_flagged={still_flagged}")
 
-        session_path = os.path.dirname(os.path.dirname(csv_path))
-        csv_dir = os.path.join(session_path, "csv")
-        original_session = state.get("current_session")
-        meta_path = os.path.join(session_path, "metadata", "metadata.json")
+        if not is_flagged_file or still_flagged:
+            return  # Nothing to do
 
+        # Paths and names
         old_basename = os.path.basename(csv_path)
         unflagged_path = re.sub(r"-flag(?=\.csv$)", "", csv_path)
         new_basename = os.path.basename(unflagged_path)
+        session_path = os.path.dirname(os.path.dirname(csv_path))
+        original_session = state.get("current_session")
+        meta_path = os.path.join(session_path, "metadata", "metadata.json")
 
-        # Load metadata BEFORE changing session path
+        # Load metadata
+        metadata = {}
         if os.path.exists(meta_path):
             with open(meta_path, "r") as f:
                 metadata = json.load(f)
-        else:
-            metadata = {}
 
-        if is_flagged_file and not still_flagged:
-            if not (os.path.exists(csv_path) and os.access(csv_path, os.W_OK)):
-                QMessageBox.warning(None, "File Locked", 
-                    f"The file '{csv_path}' is not accessible.\n\nPlease close any programs or File Explorer windows that may be using it, then try again.")
-                return
+        # Access check
+        print(f"[DEBUG] Checking access to file before rename: {csv_path}")
+        print(f"[DEBUG] Exists: {os.path.exists(csv_path)} | Writable: {os.access(csv_path, os.W_OK)}")
+        if not (os.path.exists(csv_path) and os.access(csv_path, os.W_OK)):
+            parent = os.path.dirname(csv_path)
+            if not os.path.exists(parent):
+                print(f"[DEBUG] Parent folder does not exist: {parent}")
+            else:
+                print("[WARNING] File not found. Directory contents:")
+                print(" -", "\n - ".join(os.listdir(parent)))
+            QMessageBox.warning(None, "File Locked", 
+                f"The file '{csv_path}' is not accessible.\n\nPlease close any programs or File Explorer windows that may be using it, then try again.")
+            return
 
-            # --------------------------------------------
-            # Step 1: Rename the file
-            # --------------------------------------------
-            if os.path.exists(csv_path):
+        # Flush to file just in case
+        try:
+            df.to_csv(csv_path, index=False)
+            print("[DEBUG] Flushed file with to_csv before rename.")
+        except Exception as e:
+            print(f"[DEBUG] Could not flush file before rename: {e}")
+
+        # Step 1: Rename file on disk FIRST
+        try:
+            import time
+            for attempt in range(3):
                 try:
-                    print(f"[RENAME FILE] From {csv_path} → {unflagged_path} (exists: {os.path.exists(csv_path)})")
                     os.rename(csv_path, unflagged_path)
                     print(f"[RENAME SUCCESS] File renamed to: {unflagged_path}")
+                    break
                 except Exception as e:
-                    print(f"[RENAME ERROR] Failed to rename file: {e}")
+                    print(f"[RENAME ATTEMPT {attempt+1}/3] Failed: {e}")
+                    time.sleep(0.3)
             else:
-                print(f"[RENAME WARNING] File to rename not found: {csv_path}")
+                QMessageBox.warning(None, "File Locked", f"The file '{csv_path}' could not be renamed after retries.")
+                return
+        except Exception as e:
+            print(f"[RENAME ERROR] Failed to rename file: {e}")
+            return
 
-            # --------------------------------------------
-            # Step 2: Update metadata (in memory only)
-            # --------------------------------------------
-            fees = metadata.get("fees", {})
-            if old_basename in fees:
-                fees[new_basename] = fees.pop(old_basename)
+        # Step 2: Update metadata
+        fees = metadata.get("fees", {})
+        if old_basename in fees:
+            fees[new_basename] = fees.pop(old_basename)
+        if "flagged_files" in metadata and old_basename in metadata["flagged_files"]:
+            metadata["flagged_files"].remove(old_basename)
+        metadata["flagged"] = bool(metadata.get("flagged_files"))
 
-            if "flagged_files" in metadata and old_basename in metadata["flagged_files"]:
-                metadata["flagged_files"].remove(old_basename)
+        # Step 3: Propagate in state/UI
+        propagate_file_rename(csv_path, unflagged_path, state, stack)
+        state["signals"].sessionsChanged.emit()
+        state["signals"].dataChanged.emit()
 
-            metadata["flagged"] = bool(metadata.get("flagged_files"))
+        # Refresh dropdown
+        if hasattr(stack.widget(2), "refresh_file_dropdown"):
+            stack.widget(2).refresh_file_dropdown()
 
+        # Step 4: Rename session folder if needed
+        if "-flag" in original_session and not metadata["flagged"]:
+            new_session_path = original_session.replace("-flag", "")
+            if os.path.exists(original_session) and not os.path.exists(new_session_path):
+                try:
+                    if not os.access(original_session, os.W_OK):
+                        QMessageBox.warning(None, "Folder Locked",
+                            f"The folder '{original_session}' is not accessible.\n\nPlease close any programs or File Explorer windows that may be using it, then try again.")
+                        return
+                    os.rename(original_session, new_session_path)
+                    print(f"[SESSION RENAME] Folder: {original_session} → {new_session_path}")
+                    state["current_session"] = new_session_path
+#Take your finger out of my version string 1234567
+                    # Update all state paths
+                    state["csv_paths"] = [p.replace(original_session, new_session_path) for p in state["csv_paths"]]
+                    state["dataframes"] = {
+                        p.replace(original_session, new_session_path): df
+                        for p, df in state["dataframes"].items()
+                    }
+                    state["status_counts"] = {
+                        os.path.basename(p.replace(original_session, new_session_path)): val
+                        for p, val in state["status_counts"].items()
+                    }
+                    state["fee_schedule"] = {
+                        os.path.basename(p.replace(original_session, new_session_path)): price
+                        for p, price in state["fee_schedule"].items()
+                    }
 
-            # --------------------------------------------
-            # Step 3: Update state paths
-            # --------------------------------------------
-            print(f"[STATE UPDATE] Calling propagate_file_rename with {csv_path} → {unflagged_path}")
-            propagate_file_rename(csv_path, unflagged_path, state, stack)
+                    session_path = new_session_path
+                    meta_path = os.path.join(session_path, "metadata", "metadata.json")
+                except Exception as e:
+                    print("[ERROR] Failed to rename session folder:", e)
 
-            # --------------------------------------------
-            # Step 4: Delete any leftover -flag.csv files
-            # --------------------------------------------
+        # Step 5: Save updated metadata
+        try:
+            os.makedirs(os.path.dirname(meta_path), exist_ok=True)
+            with open(meta_path, "w") as f:
+                json.dump(metadata, f, indent=2)
+            print(f"[METADATA] Saved. flagged={metadata.get('flagged')}, flagged_files={metadata.get('flagged_files', [])}")
+        except Exception as e:
+            print("[ERROR] Failed to write updated metadata:", e)
 
-
-            # --------------------------------------------
-            # Step 5: Rename the session folder if needed
-            # --------------------------------------------
-            if "-flag" in original_session and not metadata["flagged"]:
-                new_session_path = original_session.replace("-flag", "")
-                if os.path.exists(original_session) and not os.path.exists(new_session_path):
-                    try:
-                        if not os.access(original_session, os.W_OK):
-                            QMessageBox.warning(None, "Folder Locked", 
-                                f"The folder '{original_session}' is not accessible.\n\nPlease close any programs or File Explorer windows that may be using it, then try again.")
-                            return
-                        os.rename(original_session, new_session_path)
-
-                        print(f"[SESSION RENAME] Folder: {original_session} → {new_session_path}")
-
-                        print("This is an old error, currently being blocked for unflagging fixing")
-                #                        print(f"[FOLDER RENAME] {original_session} → {new_session_path}")
-                        state["current_session"] = new_session_path
-
-                        # Update all paths in state
-                        state["csv_paths"] = [p.replace(original_session, new_session_path) for p in state["csv_paths"]]
-                        state["dataframes"] = {
-                            p.replace(original_session, new_session_path): df
-                            for p, df in state["dataframes"].items()
-                        }
-                        state["status_counts"] = {
-                            os.path.basename(p.replace(original_session, new_session_path)): val
-                            for p, val in state["status_counts"].items()
-                        }
-                        state["fee_schedule"] = {
-                            os.path.basename(p.replace(original_session, new_session_path)): price
-                            for p, price in state["fee_schedule"].items()
-                        }
-
-                        # Replace the session_path and meta_path for saving
-                        session_path = new_session_path
-                        meta_path = os.path.join(session_path, "metadata", "metadata.json")
-
-                        #The old logic for deleting a folder after unflagging used to be here, but it died (1915 July 6 RBM)
-
-                    except Exception as e:
-                        print("This is an old error, currently being blocked for unflagging fixing")
-                #                        print(f"[ERROR] Failed to rename or clean up session folder: {e}")
-
-            # --------------------------------------------
-            # Step 6: Save metadata to the correct path
-            # --------------------------------------------
-            try:
-                os.makedirs(os.path.dirname(meta_path), exist_ok=True)
-                with open(meta_path, "w") as f:
-                    json.dump(metadata, f, indent=2)
-                print(f"[METADATA] Saved. flagged={metadata.get('flagged')}, flagged_files={metadata.get('flagged_files', [])}")
-
-            except Exception as e:
-                print("This is an old error, currently being blocked for unflagging fixing")
-                #                print(f"[ERROR] Failed to write updated metadata: {e}")
-
-            # Final UI & signal refresh
-            if callable(state.get("refresh_current_session_label")):
-                state["refresh_current_session_label"]()
-
-            state["signals"].sessionsChanged.emit()
-            state["signals"].dataChanged.emit()
-
-        elif not is_flagged_file and still_flagged:
-            assign_screen = stack.widget(2)
-            if hasattr(assign_screen, "session_label"):
-                assign_screen.session_label.setText("Status Assignment FLAGGED")
-                print("This is an old error, currently being blocked for unflagging fixing")
-                #            print("[INFO] File should be re-flagged, but that flow isn’t implemented.")
-        else:
-            print("This is an old error, currently being blocked for unflagging fixing")
-                #            print("[INFO] No rename or cleanup necessary.")
+        # Final signal/UI updates
+        if callable(state.get("refresh_current_session_label")):
+            state["refresh_current_session_label"]()
+        state["signals"].sessionsChanged.emit()
+        state["signals"].dataChanged.emit()
 
     def update_other_display():
         content = ""
@@ -1427,21 +1455,25 @@ def create_assign_status_screen(stack, state) -> QWidget:
                 def make_click_handler(status=status, row_idx=idx, df=df):
                     def handler():
                         selected_file = file_dropdown.currentText()
-                        try:
-                            df_index = session_csvs.index(selected_file)
-                        except ValueError:
-                            print("This is an old error, currently being blocked for unflagging fixing")
-                #                            print(f"[ERROR] Could not find selected file {selected_file} in session_csvs")
+                        
+                        # Try to resolve the correct file path from state["csv_paths"]
+                        matching_paths = [p for p in state["csv_paths"] if os.path.basename(p) == selected_file]
+                        if not matching_paths:
+                            print("[ERROR] Could not find file path for:", selected_file)
                             return
+                        path = matching_paths[0]
 
-                        path = state["csv_paths"][df_index]
+                        # Update status in memory
                         df.at[row_idx, "current_status"] = status
+
+                        print(f"[CLICK] Changed status for {df.at[row_idx, 'Name']} in {selected_file} to {status}")
                         print(f"[CHECK] Remaining 'other' statuses in file: {(df['current_status'] == 'other').sum()}")
-                        print(f"[CLICK] Changed status for {row['Name']} in {selected_file} to {status}")
+
                         update_other_display()
                         update_status_counts()
                         update_flag_state_for_file(path, state, stack)
                         state["signals"].dataChanged.emit()
+
                     return handler
 
                 btn.clicked.connect(make_click_handler())
