@@ -4,6 +4,8 @@ import os
 import re
 import shutil
 import sys
+import time
+
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -127,7 +129,6 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
     back_to_previous_btn.clicked.connect(lambda: go_back_to_previous(state))
     top_bar.addWidget(back_to_previous_btn)
     
-    back_to_previous_btn.clicked.connect(go_back_to_previous)
 
     top_bar.addWidget(back_to_previous_btn)
     top_bar.addStretch()
@@ -329,17 +330,45 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
             try:
                 shutil.rmtree(path)
                 if str(path) == str(state.get("current_session")):
+                    print("🧹 Cleaning up: current session was just deleted")
                     state["current_session"] = None
+                    if state.get("_welcome_next_btn"):
+                        state["_welcome_next_btn"].setEnabled(False)
+
+                    state["session_deleted"] = True
+                    state["session_created"] = False
                     state["csv_paths"] = []
                     state["dataframes"] = {}
                     state["status_counts"] = {}
                     state["fee_schedule"] = {}
+
+                    if state.get("_create_next_btn"):
+                        state["_create_next_btn"].setEnabled(False)
+
+                    if state.get("_upload_files_btn"):
+                        state["_upload_files_btn"].setEnabled(True)
+                    if state.get("_upload_folder_btn"):
+                        state["_upload_folder_btn"].setEnabled(True)
+
+                    if state.get("_welcome_next_btn"):
+                        state["_welcome_next_btn"].setEnabled(False)
+
+                    if state.get("_current_session_label"):
+                        state["_current_session_label"].setText("Current Session: None")
+
+                    # ✅ The key missing piece
+                    if "refresh_current_session_label" in state and callable(state["refresh_current_session_label"]):
+                        state["refresh_current_session_label"]()
+
+
+                    # (Optional) Fallback: search upward for attached label and reset
                     parent = scr
                     while parent is not None:
                         if hasattr(parent, "current_session_label"):
                             parent.current_session_label.setText("No current session")
                             break
                         parent = parent.parent()
+
                 QMessageBox.information(scr, "Deleted", "Session deleted successfully.")
                 selected_session_label.setText("Selected Session: None")
                 for btn in [mark_paid_btn, mark_unpaid_btn, delete_session_btn]:
@@ -401,6 +430,8 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
     label.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
     next_btn = QPushButton("Next")
+    state["_welcome_next_btn"] = next_btn
+
     next_btn.setEnabled(False)
     next_btn.setFixedWidth(150)
 
@@ -661,8 +692,21 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
     left_layout.addLayout(action_row)
 
     next_btn = QPushButton("Next")
+    state["_create_next_btn"] = next_btn
+
     next_btn.setEnabled(False)  # <--- disabled until session is created
-    next_btn.clicked.connect(lambda: stack.setCurrentIndex(2))
+    def try_advance_to_assign_status():
+        if not state.get("session_created") or state.get("session_deleted"):
+            QMessageBox.warning(
+                None,
+                "Session Deleted",
+                "The current session was deleted. Please create or reselect a session before continuing."
+            )
+            return
+        stack.setCurrentIndex(2)
+
+    next_btn.clicked.connect(try_advance_to_assign_status)
+
     left_layout.addWidget(next_btn)
     state["_create_session_next_btn"] = next_btn  # Optional: store for later reference
 
@@ -735,6 +779,23 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
         base_session_name = f"Session-{club_name}-{date_str}"
         flagged = False
         flagged_files = []
+        session_folder = BASE_DIR / "AnkleBreakerData" / "sessions"
+        session_path = session_folder / base_session_name
+
+
+        if not os.path.exists(session_path):
+            os.makedirs(session_path)
+            os.makedirs(session_path / "csv")
+            os.makedirs(session_path / "metadata")
+
+            state["current_session"] = str(session_path)
+            state["session_created"] = True
+            state["session_deleted"] = False
+
+        state["session_created"] = True
+        state["session_deleted"] = False
+        
+
 
         session_name = base_session_name
         suffix = 2
@@ -1044,12 +1105,6 @@ def create_assign_status_screen(stack, state) -> QWidget:
 
     # Left layout
     left_layout = QVBoxLayout()
-    lbl = QLabel()
-    screen.session_label = lbl
-    is_flagged = any("-flag.csv" in os.path.basename(p) for p in state.get("csv_paths", []))
-    lbl.setText(f"Status Assignment {'FLAGGED' if is_flagged else ''}")
-    lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    left_layout.addWidget(lbl)
 
     file_dropdown = QComboBox()
     file_dropdown.installEventFilter(state["_wheel_filter"])
@@ -1083,7 +1138,12 @@ def create_assign_status_screen(stack, state) -> QWidget:
     current_session = state.get("current_session")
     # Force-rebuild csv_paths using current session folder, not stale copy
     csv_paths = []
-    csv_dir = os.path.join(state.get("current_session", ""), "csv")
+    session_path = state.get("current_session")
+    if not session_path:
+        return screen  # Or show an error, or skip loading
+
+    csv_dir = os.path.join(session_path, "csv")
+
     if os.path.exists(csv_dir):
         for fname in sorted(os.listdir(csv_dir)):
             if fname.endswith(".csv"):
@@ -1255,7 +1315,6 @@ def create_assign_status_screen(stack, state) -> QWidget:
 
         # Step 1: Rename file on disk FIRST
         try:
-            import time
             for attempt in range(3):
                 try:
                     os.rename(csv_path, unflagged_path)
@@ -1287,7 +1346,7 @@ def create_assign_status_screen(stack, state) -> QWidget:
         # Refresh dropdown
         if hasattr(stack.widget(2), "refresh_file_dropdown"):
             stack.widget(2).refresh_file_dropdown()
-
+#BOOYAH BABY THE VERSION IS THE WORD 5 BEFORE THE LAST WORD HERE
         # Step 4: Rename session folder if needed
         if "-flag" in original_session and not metadata["flagged"]:
             new_session_path = original_session.replace("-flag", "")
@@ -2601,6 +2660,10 @@ def create_main_window() -> QWidget:
     state["signals"] = AppSignals()
     state["global_metadata"] = load_global_metadata()
     state["_refresh_crud_banners"] = []
+    state["current_session"] = None
+    state["session_created"] = False
+    state["session_deleted"] = False
+
 
     # --- Top Button Bar (AnkleBar + Past Club Sessions) ---
     top_bar = QHBoxLayout()
@@ -2679,6 +2742,12 @@ def create_main_window() -> QWidget:
                     state["dataframes"] = {}
                     state["status_counts"] = {}
                     state["fee_schedule"] = {}
+                if state.get("_welcome_next_btn"):
+                    state["_welcome_next_btn"].setEnabled(False)
+
+                if "refresh_current_session_label" in state and callable(state["refresh_current_session_label"]):
+                    state["refresh_current_session_label"]()
+
                 for fn in state.get("_refresh_crud_banners", []):
                     fn()
                 state["signals"].sessionsChanged.emit()
@@ -2727,7 +2796,7 @@ def create_main_window() -> QWidget:
     state["refresh_current_session_label"] = refresh_session_label
     state["_refresh_crud_banners"].append(refresh_session_label)
     refresh_session_label()
-#version 'Please dear god I just want doritos'
+
     # --- Stack + Tabs ---
     stack_wrapper = QWidget()
     stack_layout = QVBoxLayout(stack_wrapper)
