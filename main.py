@@ -556,20 +556,50 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
         paths, _ = QFileDialog.getOpenFileNames(
             screen, "Select CSV Files", "", "CSV Files (*.csv);;All Files (*)"
         )
-        if paths:
-            load_paths(paths)
+        if not paths:
+            return
 
+        csv_paths = [p for p in paths if p.lower().endswith(".csv")]
+        non_csv_paths = [p for p in paths if not p.lower().endswith(".csv")]
+
+        if non_csv_paths:
+            QMessageBox.information(
+                screen,
+                "Non-CSV Files Ignored",
+                f"The following file(s) were ignored because they are not CSVs:\n\n" +
+                "\n".join(non_csv_paths)
+            )
+
+        if not csv_paths:
+            QMessageBox.warning(screen, "No CSV Files", "No valid CSV files were selected.")
+            return
+
+        load_paths(csv_paths)
+        
     def select_folder():
         start_dir = str(SESSIONS_DIR) if os.path.exists(SESSIONS_DIR) else str(BASE_DIR)
         folder = QFileDialog.getExistingDirectory(screen, "Select Folder Containing CSV Files", start_dir)
-        if folder:
-            paths = [
-                os.path.join(folder, f)
-                for f in os.listdir(folder)
-                if f.lower().endswith(".csv")
-            ]
-            if paths:
-                load_paths(paths)
+        if not folder:
+            return
+
+        all_files = [os.path.join(folder, f) for f in os.listdir(folder)]
+        csv_paths = [f for f in all_files if f.lower().endswith(".csv")]
+        non_csv_paths = [f for f in all_files if not f.lower().endswith(".csv")]
+
+        if non_csv_paths:
+            QMessageBox.information(
+                screen,
+                "Non-CSV Files Ignored",
+                f"The following file(s) were ignored because they are not CSVs:\n\n" +
+                "\n".join(non_csv_paths)
+            )
+
+        if not csv_paths:
+            QMessageBox.warning(screen, "No CSV Files", "The selected folder contains no CSV files.")
+            return
+
+        load_paths(csv_paths)
+
 
     tree = QTreeWidget()
     tree.setHeaderHidden(True)
