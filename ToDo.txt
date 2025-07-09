@@ -174,3 +174,4 @@ Things to implement after the meeting on 6/23
 12*) Just did a fee schedule update, it was 0'd out but then when I put in the real value even after the math the total did not change the graphic  
        Also the fee schedule was not saved successfully in the metadata
        Fix for this, need to ensure that when the fee schedule is saved it redoes the math
+13) Maybe remove the save from the next button or make it so that it silently warns the user or somethign like that
