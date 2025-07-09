@@ -378,10 +378,25 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
                 show_sessions_for_club(header.text().split("Sessions for ")[-1])
             except Exception as e:
                 QMessageBox.critical(scr, "Error", f"Could not delete session: {e}")
+        # Check if the deleted session was the current one
+        if state.get("session_path") == path:
+            # Clear session-related state
+            state.pop("session_path", None)
+            state.pop("csv_paths", None)
+            state.pop("dataframes", None)
+            state.pop("df", None)
+
+            # Reset Welcome screen file labels
+            if "_welcome_file_label" in state:
+                state["_welcome_file_label"].setText("No files selected.")
+            if "_welcome_file_names_label" in state:
+                state["_welcome_file_names_label"].setText("")
+
 
     mark_paid_btn.clicked.connect(lambda: update_paid_status(selected_session_label.session_path, True))
     mark_unpaid_btn.clicked.connect(lambda: update_paid_status(selected_session_label.session_path, False))
     delete_session_btn.clicked.connect(lambda: delete_session(selected_session_label.session_path))
+    
 
     back_btn.clicked.connect(show_club_buttons)
     show_club_buttons()
@@ -431,6 +446,9 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
 
     next_btn = QPushButton("Next")
     state["_welcome_next_btn"] = next_btn
+    state["_welcome_file_label"] = file_label
+    state["_welcome_file_names_label"] = file_names_label
+
 
     next_btn.setEnabled(False)
     next_btn.setFixedWidth(150)
@@ -465,6 +483,7 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
 
     def open_graphical_loader():
         state["previous_screen_index"] = stack.currentIndex()
+        state["previous_program_screen"] = stack.currentIndex()
         scr = create_graphical_loader_screen(stack, state)
         stack.addWidget(scr)
         stack.setCurrentWidget(scr)

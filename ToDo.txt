@@ -159,7 +159,7 @@ Things to implement after the meeting on 6/23
 1) When uploading a folder, non-csv files are silently ignored. Maybe make them not silently ignored? 
 2) For sorting in browse recent sessions, session needs to be edited in order for it to be updated
        Change sorting method so that it is based on opening and not editing
-!3!) Back to program button does not work when PCS is opened from the welcome screen
+3*) Back to program button does not work when PCS is opened from the welcome screen
 4) Only works on unprocessed files, files that have already been processed fail
        Change this so the user can upload 'bad' files but tell them about it
 !5!) Uploaded files label in the welcome screen needs to be reset when current session is deleted
