@@ -157,17 +157,17 @@ Things to implement after the meeting on 6/23
 
 7/8
 1) When uploading a folder, non-csv files are silently ignored. Maybe make them not silently ignored? 
-2) For sorting in browse recent sessions, session needs to be edited in order for it to be updated
+2*) For sorting in browse recent sessions, session needs to be edited in order for it to be updated
        Change sorting method so that it is based on opening and not editing
 3*) Back to program button does not work when PCS is opened from the welcome screen
 4) Only works on unprocessed files, files that have already been processed fail
        Change this so the user can upload 'bad' files but tell them about it
-!5!) Uploaded files label in the welcome screen needs to be reset when current session is deleted
+5*) Uploaded files label in the welcome screen needs to be reset when current session is deleted
 6) Tab needs to me made that is the same as Flagged but for all so AnkleBreaker Note can be edited
-7) Remove status assignment flagged label
+7*) Remove status assignment flagged label
 8) In executable if a file from the active session is open, editing it in AB will have AB full crash
        Need to implement error handling
-9) Fee schedule change from >=0 to >= 1
+9*) Fee schedule change from >=0 to >= 1
        Needs to allow for float values as well
 10) Lock fee schedule editing while the session is paid, user must have the session be unpaid to edit the fee schedule
 11) Implement tool tips for the buttons if the button can be disabled

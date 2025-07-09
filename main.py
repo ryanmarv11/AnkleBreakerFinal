@@ -599,7 +599,10 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
                 print("This is an old error, currently being blocked for unflagging fixing")
                 #                print(f"[ERROR] Could not read metadata for {session_name}: {e}")
 
-        sessions_with_time.sort(key=lambda x: x[1], reverse=True)
+        sessions_with_time.sort(
+            key=lambda x: datetime.fromisoformat(x[1]) if isinstance(x[1], str) else datetime.min,
+            reverse=True
+        )
 
         for session_name, _ in sessions_with_time:
             session_path = os.path.join(SESSIONS_DIR, session_name)
@@ -874,7 +877,7 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
         metadata = {
             "club": club_name,
             "date": date_str,
-            "created": datetime.now().isoformat(),
+            "last_opened": datetime.now().isoformat(),
             "flagged": flagged,
             "flagged_files": flagged_files,
             "fees": {},
@@ -883,7 +886,6 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
         metadata_path = session_path / "metadata" / "metadata.json"
         with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=4)
-        
 
         state["current_session"] = str(session_path)
         state["csv_paths"] = new_paths
@@ -1366,11 +1368,10 @@ def create_assign_status_screen(stack, state) -> QWidget:
         propagate_file_rename(csv_path, unflagged_path, state, stack)
         state["signals"].sessionsChanged.emit()
         state["signals"].dataChanged.emit()
-
+#version 6954
         # Refresh dropdown
         if hasattr(stack.widget(2), "refresh_file_dropdown"):
             stack.widget(2).refresh_file_dropdown()
-#BOOYAH BABY THE VERSION IS THE WORD 5 BEFORE THE LAST WORD HERE
         # Step 4: Rename session folder if needed
         if "-flag" in original_session and not metadata["flagged"]:
             new_session_path = original_session.replace("-flag", "")
