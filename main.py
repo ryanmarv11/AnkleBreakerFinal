@@ -1845,19 +1845,6 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
 
 
     def save_fee_schedule():
-        prices = {}
-        for fname, inp in fee_inputs.items():
-            text = inp.text()
-            try:
-                value = float(text)
-                if value < 0:
-                    raise ValueError
-                state["fee_schedule"][fname] = round(value, 2)
-            except ValueError:
-                QMessageBox.warning(screen, "Invalid Fee", f"Invalid fee for {fname}. Please enter a non-negative number.")
-                return
-
-
         if not session_dir:
             QMessageBox.warning(screen, "No Session", "No active session to save fees to.")
             return
@@ -1867,8 +1854,43 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
             QMessageBox.warning(screen, "Missing Metadata", "Metadata file not found in current session.")
             return
 
+        # Load metadata to check if session is paid
         try:
-            # Calculate net_to_club using same logic as in payment summary
+            with open(metadata_path, "r") as f:
+                meta = json.load(f)
+        except Exception as e:
+            QMessageBox.critical(screen, "Error", f"Could not read metadata:\n{e}")
+            return
+
+        if meta.get("paid", False):
+            QMessageBox.warning(
+                screen,
+                "Fee Schedule Locked",
+                "This session is marked as paid. To edit the fee schedule, please mark the session as unpaid first."
+            )
+
+            # Reset UI inputs to what's in metadata, or 0 if not present
+            saved_fees = meta.get("fees", {})
+            for fname, inp in fee_inputs.items():
+                inp.setText(str(saved_fees.get(fname, 0)))
+
+            return  # Do NOT continue saving
+
+        prices = {}
+        for fname, inp in fee_inputs.items():
+            text = inp.text()
+            try:
+                value = float(text)
+                if value < 1:  # Matches new rule: values must be >= 1
+                    raise ValueError
+                prices[fname] = round(value, 2)
+                state["fee_schedule"][fname] = round(value, 2)
+            except ValueError:
+                QMessageBox.warning(screen, "Invalid Fee", f"Invalid fee for {fname}. Please enter a number >= 1.")
+                return
+
+        try:
+            # Calculate net_to_club using current pricing
             total_net = 0.0
             for path in state.get("csv_paths", []):
                 fname = os.path.basename(path)
@@ -1893,9 +1915,6 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
                 net = gross - tih_cut - paypal
                 total_net += net
 
-            # Save metadata
-            with open(metadata_path, "r") as f:
-                meta = json.load(f)
             meta["fees"] = prices
             meta["net_to_club"] = round(total_net, 2)
 
