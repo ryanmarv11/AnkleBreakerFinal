@@ -16,7 +16,7 @@ import pandas as pd
 
 # PyQt6 imports
 from PyQt6.QtCore import QDate, QObject, QEvent, Qt, QSize, pyqtSignal
-from PyQt6.QtGui import QAction, QIcon, QIntValidator, QColor
+from PyQt6.QtGui import QAction, QIcon, QDoubleValidator, QColor
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -356,10 +356,8 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
                     if state.get("_current_session_label"):
                         state["_current_session_label"].setText("Current Session: None")
 
-                    # ✅ The key missing piece
                     if "refresh_current_session_label" in state and callable(state["refresh_current_session_label"]):
                         state["refresh_current_session_label"]()
-
 
                     # (Optional) Fallback: search upward for attached label and reset
                     parent = scr
@@ -369,6 +367,18 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
                             break
                         parent = parent.parent()
 
+                    # ✅ Reset welcome screen if the deleted session was active there too
+                    if state.get("session_path") == path:
+                        state.pop("session_path", None)
+                        state.pop("csv_paths", None)
+                        state.pop("dataframes", None)
+                        state.pop("df", None)
+
+                        if "_welcome_file_label" in state:
+                            state["_welcome_file_label"].setText("No files selected.")
+                        if "_welcome_file_names_label" in state:
+                            state["_welcome_file_names_label"].setText("")
+
                 QMessageBox.information(scr, "Deleted", "Session deleted successfully.")
                 selected_session_label.setText("Selected Session: None")
                 for btn in [mark_paid_btn, mark_unpaid_btn, delete_session_btn]:
@@ -376,21 +386,14 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
                 state["_selected_session_path"] = None
                 state["signals"].sessionsChanged.emit()
                 show_sessions_for_club(header.text().split("Sessions for ")[-1])
+                # 🔁 Recreate the Welcome screen so its labels are properly reset
+                if "stack" in state:
+                    new_welcome = create_welcome_screen(state["stack"], state)
+                    state["stack"].removeWidget(state["stack"].widget(0))  # Remove old welcome
+                    state["stack"].insertWidget(0, new_welcome)            # Insert new one
+
             except Exception as e:
                 QMessageBox.critical(scr, "Error", f"Could not delete session: {e}")
-        # Check if the deleted session was the current one
-        if state.get("session_path") == path:
-            # Clear session-related state
-            state.pop("session_path", None)
-            state.pop("csv_paths", None)
-            state.pop("dataframes", None)
-            state.pop("df", None)
-
-            # Reset Welcome screen file labels
-            if "_welcome_file_label" in state:
-                state["_welcome_file_label"].setText("No files selected.")
-            if "_welcome_file_names_label" in state:
-                state["_welcome_file_names_label"].setText("")
 
 
     mark_paid_btn.clicked.connect(lambda: update_paid_status(selected_session_label.session_path, True))
@@ -446,8 +449,7 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
 
     next_btn = QPushButton("Next")
     state["_welcome_next_btn"] = next_btn
-    state["_welcome_file_label"] = file_label
-    state["_welcome_file_names_label"] = file_names_label
+
 
 
     next_btn.setEnabled(False)
@@ -466,6 +468,9 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
     file_names_label = QLabel("")
     file_names_label.setWordWrap(True)
     layout.addWidget(file_names_label)
+
+    state["_welcome_file_label"] = file_label
+    state["_welcome_file_names_label"] = file_names_label
 
     select_files_btn = QPushButton("Select CSV Files")
     select_folder_btn = QPushButton("Select Folder")
@@ -1680,8 +1685,11 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
     fee_inputs: Dict[str, QLineEdit] = {}
     state["fee_schedule"] = {}
 
-    validator = QIntValidator()
-    validator.setBottom(1)
+
+
+    validator = QDoubleValidator(0.0, 10000.0, 2)
+    validator.setNotation(QDoubleValidator.Notation.StandardNotation)
+
 
     csv_paths = state.get("csv_paths", [])
     saved_prices = {}
@@ -1695,9 +1703,16 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
     next_btn.setEnabled(False)
     def save_and_continue():
         for fname, inp in fee_inputs.items():
-            text = inp.text()
-            if text.isdigit():
-                state["fee_schedule"][fname] = int(text)
+            try:
+                value = float(inp.text())
+                if value < 0:
+                    raise ValueError
+                state["fee_schedule"][fname] = round(value, 2)
+            except ValueError:
+                QMessageBox.warning(screen, "Invalid Fee", f"Invalid fee for {fname}. Please enter a non-negative number.")
+                return
+
+
 
         # Update metadata again before going forward
         save_fee_schedule()
@@ -1722,8 +1737,19 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
     file_form = QFormLayout()
     layout.addLayout(file_form)
     def update_next_button_state():
-        all_filled = all(inp.text().isdigit() for inp in fee_inputs.values())
-        next_btn.setEnabled(all_filled)
+        all_valid = True
+        for inp in fee_inputs.values():
+            text = inp.text().strip()
+            try:
+                value = float(text)
+                if value < 0:
+                    all_valid = False
+                    break
+            except ValueError:
+                all_valid = False
+                break
+        next_btn.setEnabled(all_valid)
+
 
 
     if not csv_paths:
@@ -1756,8 +1782,15 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
         prices = {}
         for fname, inp in fee_inputs.items():
             text = inp.text()
-            if text.isdigit():
-                prices[fname] = int(text)
+            try:
+                value = float(text)
+                if value < 0:
+                    raise ValueError
+                state["fee_schedule"][fname] = round(value, 2)
+            except ValueError:
+                QMessageBox.warning(screen, "Invalid Fee", f"Invalid fee for {fname}. Please enter a non-negative number.")
+                return
+
 
         if not session_dir:
             QMessageBox.warning(screen, "No Session", "No active session to save fees to.")

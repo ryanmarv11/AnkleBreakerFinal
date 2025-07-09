@@ -169,3 +169,8 @@ Things to implement after the meeting on 6/23
        Need to implement error handling
 9) Fee schedule change from >=0 to >= 1
        Needs to allow for float values as well
+10) Lock fee schedule editing while the session is paid, user must have the session be unpaid to edit the fee schedule
+11) Implement tool tips for the buttons if the button can be disabled
+12) Just did a fee schedule update, it was 0'd out but then when I put in the real value even after the math the total did not change the graphic  
+       Also the fee schedule was not saved successfully in the metadata
+       Fix for this, need to ensure that when the fee schedule is saved it redoes the math
