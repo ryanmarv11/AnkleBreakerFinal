@@ -529,14 +529,35 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
 
     def load_paths(paths: List[str]):
         state["csv_paths"] = paths
-        dfs, errors = [], []
+        dfs, errors, warned_files = [], [], []
+
         for p in paths:
             try:
-                df = pd.read_csv(p, skiprows=1, header=None)
-                df.columns = ["Name", "Email", "Phone Number", "Status", "Registration Time", "Notes"]
-                df["default_status"] = df["Notes"].apply(determine_default_status)
-                df["AnkleBreaker notes"] = ""
-                dfs.append(df)
+                df = pd.read_csv(p)
+                headers = [c.strip().lower() for c in df.columns]
+
+                # Expected layouts (processed or raw)
+                processed_layout = ["name", "email", "phone number", "status", "registration time", "notes", "default_status", "anklebreaker notes", "current_status"]
+                raw_layout = ["name", "email", "status", "registered", "notes"]
+
+                if headers == processed_layout:
+                    dfs.append(df)  # Already processed
+                elif headers == raw_layout:
+                    df = pd.read_csv(p, skiprows=1, header=None)
+                    df.columns = ["Name", "Email", "Phone Number", "Status", "Registration Time", "Notes"]
+                    df["default_status"] = df["Notes"].apply(determine_default_status)
+                    df["AnkleBreaker notes"] = ""
+                    df["current_status"] = df["default_status"]
+                    dfs.append(df)
+                else:
+                    warned_files.append(os.path.basename(p))
+                    df = pd.read_csv(p, skiprows=1, header=None)
+                    df.columns = ["Name", "Email", "Phone Number", "Status", "Registration Time", "Notes"]
+                    df["default_status"] = df["Notes"].apply(determine_default_status)
+                    df["AnkleBreaker notes"] = ""
+                    df["current_status"] = df["default_status"]
+                    dfs.append(df)
+
             except Exception as exc:
                 errors.append(f"{p}: {exc}")
 
@@ -551,6 +572,14 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
         file_names_label.setText("Files:\n" + "\n".join(file_names))
 
         next_btn.setEnabled(len(dfs) > 0)
+
+        if warned_files:
+            QMessageBox.warning(
+                screen,
+                "Unexpected Headers",
+                "The following file(s) do not have expected headers and were still loaded:\n\n" +
+                "\n".join(warned_files)
+            )
 
     def select_files():
         paths, _ = QFileDialog.getOpenFileNames(
@@ -1289,8 +1318,17 @@ def create_assign_status_screen(stack, state) -> QWidget:
                     for screen_index in [2, 3, 4]:
                         widget = stack.widget(screen_index)
 
-                        if screen_index == 2 and hasattr(widget, "refresh_file_dropdown"):
-                            widget.refresh_file_dropdown()
+                        if screen_index == 2:
+                            assign_screen = state.get("assign_status_screen")
+                            if assign_screen and hasattr(assign_screen, "refresh_file_dropdown"):
+                                try:
+                                    assign_screen.refresh_file_dropdown()
+                                    print("[PROPAGATE] Refreshed assign status screen dropdown and label")
+                                except Exception as e:
+                                    print(f"[WARN] Failed to refresh assign screen: {e}")
+                            else:
+                                print("[WARN] assign_status_screen not found or missing method")
+
                             print("This is an old error, currently being blocked for unflagging fixing")
                 #                            print("[DEBUG] Refreshed assign status screen dropdown and label")
                         elif screen_index == 3:
@@ -1690,9 +1728,6 @@ def create_assign_status_screen(stack, state) -> QWidget:
 
         update_other_display()
         # Update label after potential unflagging
-        session_dir = state.get("current_session", "")
-        is_flagged = "-flag" in session_dir or any("-flag.csv" in p for p in state.get("csv_paths", []))
-        screen.session_label.setText(f"Status Assignment {'FLAGGED' if is_flagged else ''}")
         # Force dropdown reset and rerender for View All consistency
         current_text = file_dropdown.currentText()
         if current_text == "View All":
@@ -2165,6 +2200,194 @@ def create_flagged_sessions_tab(state: Dict) -> QWidget:
 
     return scr
 
+def create_all_sessions_tab(state: Dict) -> QWidget:
+
+    class AllSessionsTabSignals(QObject):
+        fileDoubleClicked = pyqtSignal(str)
+
+    all_signals = AllSessionsTabSignals()
+    state["all_sessions_tab_signals"] = all_signals
+
+    scr = QWidget()
+    layout = QVBoxLayout(scr)
+
+    header = QLabel("All Sessions Overview")
+    header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    layout.addWidget(header)
+
+    tree = QTreeWidget()
+    tree.setHeaderHidden(True)
+    tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+    layout.addWidget(tree)
+
+    # Edit UI
+    edit_box = QGroupBox("Edit AnkleBreaker Notes")
+    edit_layout = QFormLayout(edit_box)
+
+    selected_file_label = QLabel("Selected file: None")
+    edit_layout.addRow(selected_file_label)
+
+    name_dropdown = QComboBox()
+    abnote_input = QLineEdit()
+    save_btn = QPushButton("Save Note")
+    edit_layout.addRow("Select Name:", name_dropdown)
+    edit_layout.addRow("AnkleBreaker Note:", abnote_input)
+    edit_layout.addWidget(save_btn)
+    layout.addWidget(edit_box)
+    edit_box.setEnabled(False)
+
+    selected_session = None
+    selected_file = None
+    df = None
+
+    def determine_default_status(notes: str) -> str:
+        n = str(notes).lower()
+        if "comped" in n:
+            return "comped"
+        elif "no capacity, and room on the waiting list : register" in n:
+            return "waitlist"
+        elif "refund" in n:
+            return "refund"
+        elif "manually confirmed by" in n:
+            return "manual"
+        elif "not over capacity: register" in n:
+            return "regular"
+        else:
+            return "other"
+
+    def refresh_all_sessions():
+        tree.clear()
+        sessions_path = SESSIONS_DIR
+        if not os.path.exists(sessions_path):
+            return
+        for session_name in sorted(os.listdir(sessions_path)):
+            session_path = os.path.join(sessions_path, session_name)
+            metadata_path = os.path.join(session_path, "metadata", "metadata.json")
+            if not os.path.exists(metadata_path):
+                continue
+            try:
+                with open(metadata_path, "r") as f:
+                    metadata = json.load(f)
+
+                paid_status = metadata.get("paid", False)
+                status_str = "paid ✅" if paid_status else "unpaid ❌"
+                net = metadata.get("net_to_club", None)
+                formatted_total = f"${net:.2f}" if isinstance(net, (int, float)) else "No total yet"
+                display_name = f"{session_name} — {status_str} — total {formatted_total}"
+
+                parent_item = QTreeWidgetItem([display_name])
+                csv_path = os.path.join(session_path, "csv")
+                if not os.path.exists(csv_path):
+                    continue
+                for fname in sorted(os.listdir(csv_path)):
+                    if fname.endswith(".csv"):
+                        file_item = QTreeWidgetItem(parent_item, [fname])
+                        full_path = os.path.join(csv_path, fname)
+                        file_item.setData(0, Qt.ItemDataRole.UserRole, full_path)
+                tree.addTopLevelItem(parent_item)
+
+            except Exception as e:
+                print("This is an old error, currently being blocked for unflagging fixing")
+                # print(f"Error reading {metadata_path}: {e}")
+
+    def on_tree_item_selected(item, _prev=None):
+        nonlocal selected_session, selected_file, df
+        if item is None:
+            return
+        parent = item.parent()
+        if parent is None:
+            return
+        selected_session = parent.text(0).split(" — ")[0]
+
+        selected_file = item.text(0)
+        selected_file_label.setText(f"Selected file: {selected_file}")
+
+        session_dir = os.path.join(SESSIONS_DIR, selected_session)
+        full_path = os.path.join(session_dir, "csv", selected_file)
+        if not os.path.exists(full_path):
+            return
+        try:
+            df = pd.read_csv(full_path)
+
+            if "AnkleBreaker notes" not in df.columns:
+                df["AnkleBreaker notes"] = ""
+
+            if "Name" in df.columns:
+                name_dropdown.blockSignals(True)
+                name_dropdown.clear()
+                name_dropdown.addItems(df["Name"].dropna().astype(str).tolist())
+                name_dropdown.blockSignals(False)
+
+                if not df["Name"].empty:
+                    name_dropdown.setCurrentIndex(0)
+                    on_name_selected(name_dropdown.currentText())
+
+                edit_box.setEnabled(True)
+            else:
+                print("This is an old error, currently being blocked for unflagging fixing")
+                # print(f"[ERROR] 'Name' column missing in {full_path}")
+
+        except Exception as e:
+            print("This is an old error, currently being blocked for unflagging fixing")
+            # print(f"[ERROR] Failed to load {full_path}: {e}")
+            df = None
+            edit_box.setEnabled(False)
+
+    def on_tree_item_double_clicked(item: QTreeWidgetItem, column: int):
+        parent = item.parent()
+        if parent is None:
+            return
+        file_path = item.data(0, Qt.ItemDataRole.UserRole)
+        if file_path and os.path.exists(file_path):
+            state["tabs"].setCurrentIndex(4)
+            all_signals.fileDoubleClicked.emit(file_path)
+
+    def on_name_selected(name):
+        if df is None:
+            return
+        matches = df[df["Name"] == name]
+        if matches.empty:
+            abnote_input.clear()
+            return
+        abnote = matches["AnkleBreaker notes"].values[0] if "AnkleBreaker notes" in matches.columns else ""
+        abnote_input.setText(str(abnote))
+
+    def on_save_note():
+        nonlocal selected_session, selected_file, df
+        if df is None:
+            return
+        name = name_dropdown.currentText()
+        if not name:
+            return
+        if "AnkleBreaker notes" not in df.columns:
+            df["AnkleBreaker notes"] = ""
+        df.loc[df["Name"] == name, "AnkleBreaker notes"] = abnote_input.text()
+
+        df["default_status"] = df["Notes"].apply(determine_default_status)
+
+        session_path = os.path.join(SESSIONS_DIR, selected_session)
+        csv_dir = os.path.join(session_path, "csv")
+        file_path = os.path.join(csv_dir, selected_file)
+        df.to_csv(file_path, index=False)
+
+        # Ensure in-memory state is updated if applicable
+        state["signals"].sessionsChanged.emit()
+        state["signals"].dataChanged.emit()
+        refresh_all_sessions()
+
+    tree.itemClicked.connect(on_tree_item_selected)
+    tree.currentItemChanged.connect(on_tree_item_selected)
+    tree.itemDoubleClicked.connect(on_tree_item_double_clicked)
+    name_dropdown.currentTextChanged.connect(on_name_selected)
+    save_btn.clicked.connect(on_save_note)
+
+    state["signals"].sessionsChanged.connect(refresh_all_sessions)
+    refresh_all_sessions()
+
+    scr.refresh = refresh_all_sessions 
+
+    return scr
+
 
 def create_current_session_files_tab(state: Dict) -> QWidget:
     scr = QWidget()
@@ -2554,10 +2777,15 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
             print("This is an old error, currently being blocked for unflagging fixing")
                 #            print(f"[ERROR] Failed to load file from path: {e}")
 
-    def connect_flagged_tab_signal():
-        signals = state.get("flagged_tab_signals")
-        if signals:
-            signals.fileDoubleClicked.connect(load_file_from_path)
+    def connect_file_viewer_signals():
+        flagged_signals = state.get("flagged_tab_signals")
+        all_signals = state.get("all_sessions_tab_signals")
+        if flagged_signals:
+            flagged_signals.fileDoubleClicked.connect(load_file_from_path)
+        if all_signals:
+            all_signals.fileDoubleClicked.connect(load_file_from_path)
+
+
 
     # Hook up signals
     club_dropdown.currentTextChanged.connect(on_club_change)
@@ -2572,7 +2800,9 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
 
     # Initial setup
     refresh_dropdowns()
-    connect_flagged_tab_signal()
+    connect_file_viewer_signals()
+
+
 
     return scr
 
@@ -2899,6 +3129,7 @@ def create_main_window() -> QWidget:
     tabs.addTab(program_tab, "Program")
     tabs.addTab(create_current_session_files_tab(state), "Current Session Files")
     tabs.addTab(create_flagged_sessions_tab(state), "Flagged")
+    tabs.addTab(create_all_sessions_tab(state), "All Sessions")
     tabs.addTab(create_any_file_viewer_tab(state), "Browse All Files")
 
     def refresh_dynamic_tab(index):
