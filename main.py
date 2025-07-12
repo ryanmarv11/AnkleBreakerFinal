@@ -1129,7 +1129,6 @@ def create_payment_summary_screen(stack, state) -> QWidget:
 
             regular = counts.get("regular", 0)
             manual = counts.get("manual", 0)
-            refund = counts.get("refund", 0)
 
             gross = (regular + manual) * price
             trackithub = (regular + manual) * price * 0.10

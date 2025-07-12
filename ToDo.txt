@@ -175,3 +175,23 @@ Things to implement after the meeting on 6/23
        Also the fee schedule was not saved successfully in the metadata
        Fix for this, need to ensure that when the fee schedule is saved it redoes the math
 13) Maybe remove the save from the next button or make it so that it silently warns the user or somethign like that
+
+7/9
+When session is marked as paid, disable the fee schedule inputs, assign all button, reset all button, save fee schedule button
+In the welcome page have a tooltip for status assignment
+Implement comped list again, have it supercede other logic for default status 
+Reimplement mark as paid button on the payment summary screen
+Have all fee schedules default to 10.00 since it's just Zorano
+In all sessions tab, make sure we're sorting by last opened metadata
+Remove flagged sessions tab, do Nolan's suggestion for adding filters
+       Filter for flagged, filter for unpaid, filter for paid
+Allow for the user to select where the AnkleBreakerData folder is saved, include base location in metadata
+       this way if the file needs to be moved/gets deleted the user can update the base directory location
+Statuses are not persisting through runs
+Total is not being updated
+Allow for editing of the session even though the status is paid
+Default to $10 from fee schedule
+Fix comped
+Keywords tooltip to welcome screen
+Paid button on payment summary screen
+Enable the ability to pick where to save the session folder the first time around
