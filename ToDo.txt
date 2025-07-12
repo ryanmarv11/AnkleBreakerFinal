@@ -187,11 +187,40 @@ Remove flagged sessions tab, do Nolan's suggestion for adding filters
        Filter for flagged, filter for unpaid, filter for paid
 Allow for the user to select where the AnkleBreakerData folder is saved, include base location in metadata
        this way if the file needs to be moved/gets deleted the user can update the base directory location
-Statuses are not persisting through runs
 Total is not being updated
 Allow for editing of the session even though the status is paid
-Default to $10 from fee schedule
-Fix comped
-Keywords tooltip to welcome screen
-Paid button on payment summary screen
-Enable the ability to pick where to save the session folder the first time around
+
+7/11
+Easy
+1*) Add Mark as Paid button to Payment Summary Screen 
+2*) In the welcome screen, put an info tooltip for the format of notes 
+       Regular
+       Manual
+       Waitlist
+       Comped
+       Refund
+       Other
+       Paypal issue should be Regular
+       Cash payment should be Manual
+3*) Have all fee schedule values default to 10
+4*) Allow for editing of the session, its statuses, and its fee schedule even when paid
+5*) In all sessions make sure that we are sorting by the last_opened metadata
+6*) Remove flagged sessions tab
+Medium
+1) Reimplement list of comped people, add to if logic for comped default status
+       Look for old comped.txt, that will be the original
+       Implement feature in the menu bar for adding/removing people to the list
+       All of this should be stored in the metadata
+2) Ability to select destination for AnkleBreaker Data folder
+       Make metadata for initial run
+       Should look for old metadata file and kill it(??)
+3) In all sessions tab (for editing AnkleBreaker Notes), implement filter for flagged, unpaid, and paid
+Hard
+1) Statuses are not being remembered by the program    
+       Implement a metadata fix or do file IO's
+2) Total is not being updated in QTreeWidgets when fee schedule is updated
+       When fee schedule is updated and saved to the metadata, refresh the tree widgets
+       Or if the math is being done after that, do it whenever the math is done
+       Make sure that the math is triggering
+              Maybe have the math refresh whenever a fee schedule changes?
+

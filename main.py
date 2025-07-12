@@ -483,6 +483,26 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
     # --- ADDED BUTTON ---
     graphical_loader_btn = QPushButton("Past Club Sessions")
     layout.addWidget(graphical_loader_btn)
+    info_btn = QPushButton("ℹ️ Notes Format")
+    info_btn.setFixedWidth(150)
+
+    def show_notes_info():
+        QMessageBox.information(
+            screen,
+            "How Notes Determine Status",
+            (
+                "The status of each participant is determined by the content of their Notes column.\n\n"
+                "• Contains 'comped' → Status: Comped\n"
+                "• Contains 'no capacity, and room on the waiting list : register' → Status: Waitlist\n"
+                "• Contains 'refund' → Status: Refund\n"
+                "• Contains 'manually confirmed by' → Status: Manual\n"
+                "• Contains 'not over capacity: register' → Status: Regular\n"
+                "• Anything else → Status: Other"
+            )
+        )
+
+    info_btn.clicked.connect(show_notes_info)
+    top_row.insertWidget(top_row.count() - 1, info_btn)  # Just before next_btn
 
     next_btn.clicked.connect(lambda: stack.setCurrentIndex(1))
 
@@ -1036,32 +1056,35 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
     return screen
 
 def create_payment_summary_screen(stack, state) -> QWidget:
-    print("This is an old error, currently being blocked for unflagging fixing")
-    """
-    print("[DEBUG] Status counts keys:", state.get("status_counts", {}).keys())
-    print("[DEBUG] Fee schedule keys:", state.get("fee_schedule", {}).keys())
-    """
     screen = QWidget()
     layout = QVBoxLayout(screen)
 
+    # Top row: Mark as Unpaid | Payment Summary | Mark as Paid
+    top_row = QHBoxLayout()
+
+    unpaid_btn = QPushButton("Mark as Unpaid")
+    paid_btn = QPushButton("Mark as Paid")
     header = QLabel("Payment Summary")
     header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    layout.addWidget(header)
+
+    top_row.addWidget(unpaid_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+    top_row.addStretch()
+    top_row.addWidget(header, alignment=Qt.AlignmentFlag.AlignCenter)
+    top_row.addStretch()
+    top_row.addWidget(paid_btn, alignment=Qt.AlignmentFlag.AlignRight)
+
+    layout.addLayout(top_row)
 
     # Container layout to be refreshable
     summary_container = QVBoxLayout()
     layout.addLayout(summary_container)
 
     def build_payment_summary():
-        # Clear container
         while summary_container.count():
             child = summary_container.takeAt(0)
             if child.widget():
                 child.widget().deleteLater()
 
-        # ------------------------------
-        # Load Club Name from Metadata
-        # ------------------------------
         session_dir = state.get("current_session")
         club_name = "Club"
         if session_dir:
@@ -1071,27 +1094,22 @@ def create_payment_summary_screen(stack, state) -> QWidget:
                     with open(metadata_path, "r") as f:
                         metadata = json.load(f)
                     club_name = metadata.get("club", "Club")
-                except Exception as e:
-                    print("This is an old error, currently being blocked for unflagging fixing")
-                #                    print(f"[ERROR] Failed to read metadata: {e}")
+                except:
+                    pass
 
-        # ------------------------------
-        # Table 1: Status Count Summary
-        # ------------------------------
+        # Status summary table
         statuses = ["regular", "manual", "comped", "refund", "waitlist", "other"]
-        status_table = QTableWidget()
-        status_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-
         status_counts = state.get("status_counts", {})
         filenames = list(status_counts.keys())
 
+        status_table = QTableWidget()
+        status_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         status_table.setRowCount(len(filenames) + 1)
         status_table.setColumnCount(len(statuses))
         status_table.setHorizontalHeaderLabels([s.capitalize() for s in statuses])
         status_table.setVerticalHeaderLabels(filenames + ["Total"])
 
         totals = dict.fromkeys(statuses, 0)
-
         for row_idx, fname in enumerate(filenames):
             counts = status_counts.get(fname, {})
             for col_idx, status in enumerate(statuses):
@@ -1107,11 +1125,8 @@ def create_payment_summary_screen(stack, state) -> QWidget:
         status_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         summary_container.addWidget(status_table)
 
-        # ------------------------------
-        # Table 2: Financial Breakdown
-        # ------------------------------
+        # Financial table
         summary_container.addWidget(QLabel("Financial Summary"))
-
         columns = ["Gross", "TrackitHub", "PayPal", club_name]
         financial_table = QTableWidget()
         financial_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -1126,24 +1141,19 @@ def create_payment_summary_screen(stack, state) -> QWidget:
         for row_idx, fname in enumerate(filenames):
             price = fee_schedule.get(fname, 0)
             counts = status_counts.get(fname, {})
-
             regular = counts.get("regular", 0)
             manual = counts.get("manual", 0)
 
             gross = (regular + manual) * price
-            trackithub = (regular + manual) * price * 0.10
+            trackithub = gross * 0.10
 
             paypal = 0.0
-            paypal_count = regular
-            for _ in range(paypal_count):
-                if price <= 10:
-                    paypal += price * 0.05 + 0.09
-                else:
-                    paypal += price * 0.0349 + 0.49
+            for _ in range(regular):
+                paypal += price * 0.05 + 0.09 if price <= 10 else price * 0.0349 + 0.49
 
             net_to_club = gross - trackithub - paypal
-
             row_values = [gross, trackithub, paypal, net_to_club]
+
             for col_idx, value in enumerate(row_values):
                 item = QTableWidgetItem(f"${value:.2f}")
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -1156,8 +1166,32 @@ def create_payment_summary_screen(stack, state) -> QWidget:
         financial_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         summary_container.addWidget(financial_table)
 
-    # Build it once on screen creation
     build_payment_summary()
+
+    def update_paid_status(status: bool):
+        session_dir = state.get("current_session")
+        if not session_dir:
+            QMessageBox.warning(screen, "No Session", "No active session loaded.")
+            return
+
+        meta_path = os.path.join(session_dir, "metadata", "metadata.json")
+        if not os.path.exists(meta_path):
+            QMessageBox.warning(screen, "Missing Metadata", "Metadata file not found in current session.")
+            return
+
+        try:
+            with open(meta_path, "r") as f:
+                metadata = json.load(f)
+            metadata["paid"] = status
+            with open(meta_path, "w") as f:
+                json.dump(metadata, f, indent=4)
+            QMessageBox.information(screen, "Updated", f"Session marked as {'paid' if status else 'unpaid'}.")
+            state["signals"].sessionsChanged.emit()
+        except Exception as e:
+            QMessageBox.critical(screen, "Error", f"Failed to update paid status:\n{e}")
+
+    paid_btn.clicked.connect(lambda: update_paid_status(True))
+    unpaid_btn.clicked.connect(lambda: update_paid_status(False))
 
     def refresh_summary():
         new_screen = create_payment_summary_screen(stack, state)
@@ -1167,7 +1201,6 @@ def create_payment_summary_screen(stack, state) -> QWidget:
 
     screen.refresh_summary = refresh_summary
 
-    # Navigation
     nav_row = QHBoxLayout()
     back_btn = QPushButton("Back")
     back_btn.clicked.connect(lambda: stack.setCurrentIndex(3))
@@ -1827,6 +1860,9 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
             inp.setPlaceholderText("Enter cost")
             if fname in saved_prices:
                 inp.setText(str(saved_prices[fname]))
+            else:
+                inp.setText("10.00")
+
             file_form.addRow(QLabel(fname), inp)
             fee_inputs[fname] = inp
             inp.textChanged.connect(update_next_button_state)
@@ -1861,19 +1897,6 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
             QMessageBox.critical(screen, "Error", f"Could not read metadata:\n{e}")
             return
 
-        if meta.get("paid", False):
-            QMessageBox.warning(
-                screen,
-                "Fee Schedule Locked",
-                "This session is marked as paid. To edit the fee schedule, please mark the session as unpaid first."
-            )
-
-            # Reset UI inputs to what's in metadata, or 0 if not present
-            saved_fees = meta.get("fees", {})
-            for fname, inp in fee_inputs.items():
-                inp.setText(str(saved_fees.get(fname, 0)))
-
-            return  # Do NOT continue saving
 
         prices = {}
         for fname, inp in fee_inputs.items():
@@ -2002,223 +2025,9 @@ def create_program_flow_tab(state: Dict, stack:QStackedWidget) -> QStackedWidget
     return stack
 
 
-def create_flagged_sessions_tab(state: Dict) -> QWidget:
-
-    class FlaggedTabSignals(QObject):
-        fileDoubleClicked = pyqtSignal(str)
-
-    flagged_signals = FlaggedTabSignals()
-    state["flagged_tab_signals"] = flagged_signals
-
-    scr = QWidget()
-    layout = QVBoxLayout(scr)
-
-    header = QLabel("Flagged Sessions Overview")
-    header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    layout.addWidget(header)
-
-    tree = QTreeWidget()
-    tree.setHeaderHidden(True)
-    tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-    layout.addWidget(tree)
-
-    # Edit & Unflag UI
-    edit_box = QGroupBox("Edit Notes and Unflag")
-    edit_layout = QFormLayout(edit_box)
-
-    selected_file_label = QLabel("Selected file: None")
-    edit_layout.addRow(selected_file_label)
-
-    name_dropdown = QComboBox()
-    abnote_input = QLineEdit()
-    save_btn = QPushButton("Save Note")
-    edit_layout.addRow("Select Name:", name_dropdown)
-    edit_layout.addRow("AnkleBreaker Note:", abnote_input)
-    edit_layout.addWidget(save_btn)
-    layout.addWidget(edit_box)
-    edit_box.setEnabled(False)
-
-    selected_session = None
-    selected_file = None
-    df = None
-
-    def determine_default_status(notes: str) -> str:
-        n = str(notes).lower()
-        if "comped" in n:
-            return "comped"
-        elif "no capacity, and room on the waiting list : register" in n:
-            return "waitlist"
-        elif "refund" in n:
-            return "refund"
-        elif "manually confirmed by" in n:
-            return "manual"
-        elif "not over capacity: register" in n:
-            return "regular"
-        else:
-            return "other"
-
-    def refresh_flagged():
-        tree.clear()
-        sessions_path = SESSIONS_DIR
-        if not os.path.exists(sessions_path):
-            return
-        for session_name in sorted(os.listdir(sessions_path)):
-            session_path = os.path.join(sessions_path, session_name)
-            metadata_path = os.path.join(session_path, "metadata", "metadata.json")
-            if not os.path.exists(metadata_path):
-                continue
-            try:
-                with open(metadata_path, "r") as f:
-                    metadata = json.load(f)
-
-                if metadata.get("flagged"):
-                    paid_status = metadata.get("paid", False)
-                    status_str = "paid ✅" if paid_status else "unpaid ❌"
-                    net = metadata.get("net_to_club", None)
-                    formatted_total = f"${net:.2f}" if isinstance(net, (int, float)) else "No total yet"
-                    display_name = f"{session_name} — {status_str} — total {formatted_total}"
-
-                    parent_item = QTreeWidgetItem([display_name])
-                    flagged_files = metadata.get("flagged_files", [])
-                    for file_name in flagged_files:
-                        file_item = QTreeWidgetItem(parent_item, [file_name])
-                        full_path = os.path.join(session_path, "csv", file_name)
-                        file_item.setData(0, Qt.ItemDataRole.UserRole, full_path)
-                    tree.addTopLevelItem(parent_item)
-
-            except Exception as e:
-                print("This is an old error, currently being blocked for unflagging fixing")
-                #                print(f"Error reading {metadata_path}: {e}")
-
-    def on_tree_item_selected(item, _prev=None):
-        nonlocal selected_session, selected_file, df
-        if item is None:
-            return
-        parent = item.parent()
-        if parent is None:
-            return
-        selected_session = parent.text(0).split(" — ")[0]
-
-        selected_file = item.text(0)
-        selected_file_label.setText(f"Selected file: {selected_file}")
-
-        session_dir = os.path.join(SESSIONS_DIR, selected_session)
-        full_path = os.path.join(session_dir, "csv", selected_file)
-        if not os.path.exists(full_path):
-            return
-        try:
-            df = pd.read_csv(full_path)
-
-            if "AnkleBreaker notes" not in df.columns:
-                df["AnkleBreaker notes"] = ""
-
-            if "Name" in df.columns:
-                name_dropdown.blockSignals(True)
-                name_dropdown.clear()
-                name_dropdown.addItems(df["Name"].dropna().astype(str).tolist())
-                name_dropdown.blockSignals(False)
-
-                if not df["Name"].empty:
-                    name_dropdown.setCurrentIndex(0)
-                    on_name_selected(name_dropdown.currentText())
-
-                edit_box.setEnabled(True)
-            else:
-                print("This is an old error, currently being blocked for unflagging fixing")
-                #                print(f"[ERROR] 'Name' column missing in {full_path}")
-
-        except Exception as e:
-            print("This is an old error, currently being blocked for unflagging fixing")
-                #            print(f"[ERROR] Failed to load {full_path}: {e}")
-            df = None
-            edit_box.setEnabled(False)
-
-    def on_tree_item_double_clicked(item: QTreeWidgetItem, column: int):
-        parent = item.parent()
-        if parent is None:
-            return
-        file_path = item.data(0, Qt.ItemDataRole.UserRole)
-        if file_path and os.path.exists(file_path):
-            state["tabs"].setCurrentIndex(4)
-            flagged_signals.fileDoubleClicked.emit(file_path)
-
-    def on_name_selected(name):
-        if df is None:
-            return
-        matches = df[df["Name"] == name]
-        if matches.empty:
-            abnote_input.clear()
-            return
-        abnote = matches["AnkleBreaker notes"].values[0] if "AnkleBreaker notes" in matches.columns else ""
-        abnote_input.setText(str(abnote))
-
-    def on_save_note():
-        nonlocal selected_session, selected_file, df
-        if df is None:
-            return
-        name = name_dropdown.currentText()
-        if not name:
-            return
-        if "AnkleBreaker notes" not in df.columns:
-            df["AnkleBreaker notes"] = ""
-        df.loc[df["Name"] == name, "AnkleBreaker notes"] = abnote_input.text()
-
-        df["default_status"] = df["Notes"].apply(determine_default_status)
-
-        session_path = os.path.join(SESSIONS_DIR, selected_session)
-        csv_dir = os.path.join(session_path, "csv")
-        old_path = os.path.join(csv_dir, selected_file)
-        df.to_csv(old_path, index=False)
-
-        should_flag = (df["default_status"] == "other").any()
-        base_name = selected_file.replace("-flag.csv", ".csv") if selected_file.endswith("-flag.csv") else selected_file
-        new_file_name = base_name.replace(".csv", "-flag.csv") if should_flag else base_name
-        new_path = os.path.join(csv_dir, new_file_name)
-
-        if old_path != new_path:
-            os.rename(old_path, new_path)
-
-        meta_path = os.path.join(session_path, "metadata", "metadata.json")
-        if os.path.exists(meta_path):
-            with open(meta_path, "r") as f:
-                meta = json.load(f)
-            all_files = os.listdir(csv_dir)
-            flagged_files = [f for f in all_files if f.endswith("-flag.csv")]
-            meta["flagged_files"] = flagged_files
-            meta["flagged"] = bool(flagged_files)
-
-            current_name = os.path.basename(session_path)
-            new_session_name = current_name.replace("-flag", "") if not flagged_files else (
-                current_name if "-flag" in current_name else f"{current_name}-flag"
-            )
-            if new_session_name != current_name:
-                new_session_path = os.path.join(SESSIONS_DIR, new_session_name)
-                os.rename(session_path, new_session_path)
-                selected_session = new_session_name
-                session_path = new_session_path
-                state["current_session"] = new_session_path
-
-            with open(os.path.join(SESSIONS_DIR, selected_session, "metadata", "metadata.json"), "w") as f:
-                json.dump(meta, f, indent=4)
-
-        state["signals"].sessionsChanged.emit()
-        state["signals"].dataChanged.emit()
-        refresh_flagged()
-
-    tree.itemClicked.connect(on_tree_item_selected)
-    tree.currentItemChanged.connect(on_tree_item_selected)
-
-    
-    tree.itemDoubleClicked.connect(on_tree_item_double_clicked)
-    name_dropdown.currentTextChanged.connect(on_name_selected)
-    save_btn.clicked.connect(on_save_note)
-
-    state["signals"].sessionsChanged.connect(refresh_flagged)
-    refresh_flagged()
-
-    return scr
 
 def create_all_sessions_tab(state: Dict) -> QWidget:
+    from datetime import datetime
 
     class AllSessionsTabSignals(QObject):
         fileDoubleClicked = pyqtSignal(str)
@@ -2278,7 +2087,9 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
         sessions_path = SESSIONS_DIR
         if not os.path.exists(sessions_path):
             return
-        for session_name in sorted(os.listdir(sessions_path)):
+
+        sessions = []
+        for session_name in os.listdir(sessions_path):
             session_path = os.path.join(sessions_path, session_name)
             metadata_path = os.path.join(session_path, "metadata", "metadata.json")
             if not os.path.exists(metadata_path):
@@ -2286,27 +2097,35 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
             try:
                 with open(metadata_path, "r") as f:
                     metadata = json.load(f)
+                last_opened_str = metadata.get("last_opened", "1970-01-01T00:00:00")
+                try:
+                    last_opened = datetime.fromisoformat(last_opened_str)
+                except:
+                    last_opened = datetime(1970, 1, 1)
+                sessions.append((session_name, session_path, metadata, last_opened))
+            except:
+                print("Skipping session due to metadata read error.")
 
-                paid_status = metadata.get("paid", False)
-                status_str = "paid ✅" if paid_status else "unpaid ❌"
-                net = metadata.get("net_to_club", None)
-                formatted_total = f"${net:.2f}" if isinstance(net, (int, float)) else "No total yet"
-                display_name = f"{session_name} — {status_str} — total {formatted_total}"
+        # Sort by last_opened descending
+        sessions.sort(key=lambda x: x[3], reverse=True)
 
-                parent_item = QTreeWidgetItem([display_name])
-                csv_path = os.path.join(session_path, "csv")
-                if not os.path.exists(csv_path):
-                    continue
-                for fname in sorted(os.listdir(csv_path)):
-                    if fname.endswith(".csv"):
-                        file_item = QTreeWidgetItem(parent_item, [fname])
-                        full_path = os.path.join(csv_path, fname)
-                        file_item.setData(0, Qt.ItemDataRole.UserRole, full_path)
-                tree.addTopLevelItem(parent_item)
+        for session_name, session_path, metadata, _ in sessions:
+            paid_status = metadata.get("paid", False)
+            status_str = "paid ✅" if paid_status else "unpaid ❌"
+            net = metadata.get("net_to_club", None)
+            formatted_total = f"${net:.2f}" if isinstance(net, (int, float)) else "No total yet"
+            display_name = f"{session_name} — {status_str} — total {formatted_total}"
 
-            except Exception as e:
-                print("This is an old error, currently being blocked for unflagging fixing")
-                # print(f"Error reading {metadata_path}: {e}")
+            parent_item = QTreeWidgetItem([display_name])
+            csv_path = os.path.join(session_path, "csv")
+            if not os.path.exists(csv_path):
+                continue
+            for fname in sorted(os.listdir(csv_path)):
+                if fname.endswith(".csv"):
+                    file_item = QTreeWidgetItem(parent_item, [fname])
+                    full_path = os.path.join(csv_path, fname)
+                    file_item.setData(0, Qt.ItemDataRole.UserRole, full_path)
+            tree.addTopLevelItem(parent_item)
 
     def on_tree_item_selected(item, _prev=None):
         nonlocal selected_session, selected_file, df
@@ -2343,11 +2162,9 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
                 edit_box.setEnabled(True)
             else:
                 print("This is an old error, currently being blocked for unflagging fixing")
-                # print(f"[ERROR] 'Name' column missing in {full_path}")
 
         except Exception as e:
             print("This is an old error, currently being blocked for unflagging fixing")
-            # print(f"[ERROR] Failed to load {full_path}: {e}")
             df = None
             edit_box.setEnabled(False)
 
@@ -2388,7 +2205,6 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
         file_path = os.path.join(csv_dir, selected_file)
         df.to_csv(file_path, index=False)
 
-        # Ensure in-memory state is updated if applicable
         state["signals"].sessionsChanged.emit()
         state["signals"].dataChanged.emit()
         refresh_all_sessions()
@@ -2402,8 +2218,7 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
     state["signals"].sessionsChanged.connect(refresh_all_sessions)
     refresh_all_sessions()
 
-    scr.refresh = refresh_all_sessions 
-
+    scr.refresh = refresh_all_sessions
     return scr
 
 
@@ -3146,7 +2961,6 @@ def create_main_window() -> QWidget:
 
     tabs.addTab(program_tab, "Program")
     tabs.addTab(create_current_session_files_tab(state), "Current Session Files")
-    tabs.addTab(create_flagged_sessions_tab(state), "Flagged")
     tabs.addTab(create_all_sessions_tab(state), "All Sessions")
     tabs.addTab(create_any_file_viewer_tab(state), "Browse All Files")
 
