@@ -207,11 +207,13 @@ Easy
 5*) In all sessions make sure that we are sorting by the last_opened metadata
 6*) Remove flagged sessions tab
 Medium
-1) Reimplement list of comped people, add to if logic for comped default status
+1*) Reimplement list of comped people, add to if logic for comped default status
        Look for old comped.txt, that will be the original
        Implement feature in the menu bar for adding/removing people to the list
        All of this should be stored in the metadata
-2) Ability to select destination for AnkleBreaker Data folder
+1 cont)
+       Making a list of comped people that the user can add/subtract from will be a feature for the next iteration of AB
+2*) Ability to select destination for AnkleBreaker Data folder
        Make metadata for initial run
        Should look for old metadata file and kill it(??)
 3) In all sessions tab (for editing AnkleBreaker Notes), implement filter for flagged, unpaid, and paid

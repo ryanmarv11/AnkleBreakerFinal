@@ -66,6 +66,20 @@ SESSIONS_DIR.mkdir(exist_ok=True)               # ensure it exists
 # Ensure metadata.json exists in the current directory
 
 DEFAULT_CLUBS = ["Zorano"]
+COMPED_NAMES = {
+    "vincent robertson",
+    "ryan marvin",
+    "zorano tubo",
+    "kaleta tubo",
+    "tiniira tubo",
+    "cole hessler",
+    "meyer knapp",
+    "tina knapp",
+    "linda kypp",
+    "anderson leclair",
+    "the ghost"
+}
+
 
 def load_global_metadata() -> dict:
     if not os.path.exists(ROOT_METADATA_PATH):
@@ -532,7 +546,10 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
             print("This is an old error, currently being blocked for unflagging fixing")
                 #            print(f"[ERROR] Could not update last_opened for {session_path}: {e}")
 
-    def determine_default_status(notes: str) -> str:
+    def determine_default_status(notes: str, name: str) -> str:
+        if str(name).strip().lower() in COMPED_NAMES:
+            return "comped"
+
         n = str(notes).lower()
         if "comped" in n:
             return "comped"
@@ -565,7 +582,7 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
                 elif headers == raw_layout:
                     df = pd.read_csv(p, skiprows=1, header=None)
                     df.columns = ["Name", "Email", "Phone Number", "Status", "Registration Time", "Notes"]
-                    df["default_status"] = df["Notes"].apply(determine_default_status)
+                    df["default_status"] = df.apply(lambda row: determine_default_status(row["Notes"], row["Name"]), axis=1)
                     df["AnkleBreaker notes"] = ""
                     df["current_status"] = df["default_status"]
                     dfs.append(df)
@@ -573,7 +590,7 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
                     warned_files.append(os.path.basename(p))
                     df = pd.read_csv(p, skiprows=1, header=None)
                     df.columns = ["Name", "Email", "Phone Number", "Status", "Registration Time", "Notes"]
-                    df["default_status"] = df["Notes"].apply(determine_default_status)
+                    df["default_status"] = df.apply(lambda row: determine_default_status(row["Notes"], row["Name"]), axis=1)
                     df["AnkleBreaker notes"] = ""
                     df["current_status"] = df["default_status"]
                     dfs.append(df)
@@ -921,7 +938,7 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
             filename = os.path.basename(original_path)
 
             if "default_status" not in df.columns:
-                df["default_status"] = df["Notes"].apply(determine_default_status)
+                df["default_status"] = df.apply(lambda row: determine_default_status(row["Notes"], row["Name"]), axis=1)
 
             if "current_status" not in df.columns:
                 df["current_status"] = df["default_status"]
@@ -975,7 +992,7 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
             try:
                 df = pd.read_csv(p)
                 if "default_status" not in df.columns:
-                    df["default_status"] = df["Notes"].apply(determine_default_status)
+                    df["default_status"] = df.apply(lambda row: determine_default_status(row["Notes"], row["Name"]), axis=1)
                 if "current_status" not in df.columns:
                     df["current_status"] = df["default_status"]
                 if "AnkleBreaker notes" not in df.columns:
@@ -2038,10 +2055,31 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
     scr = QWidget()
     layout = QVBoxLayout(scr)
 
+    # --- Header Row with Filters ---
+    header_row = QHBoxLayout()
     header = QLabel("All Sessions Overview")
-    header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    layout.addWidget(header)
+    header.setAlignment(Qt.AlignmentFlag.AlignLeft)
+    header_row.addWidget(header)
 
+    # Filter buttons
+    flagged_btn = QPushButton("Flagged")
+    unflagged_btn = QPushButton("Unflagged")
+    paid_btn = QPushButton("Paid")
+    unpaid_btn = QPushButton("Unpaid")
+    reset_btn = QPushButton("Reset Filters")
+
+    for btn in [flagged_btn, unflagged_btn, paid_btn, unpaid_btn]:
+        btn.setCheckable(True)
+
+    header_row.addWidget(flagged_btn)
+    header_row.addWidget(unflagged_btn)
+    header_row.addWidget(paid_btn)
+    header_row.addWidget(unpaid_btn)
+    header_row.addWidget(reset_btn)
+    header_row.addStretch()
+    layout.addLayout(header_row)
+
+    # Tree
     tree = QTreeWidget()
     tree.setHeaderHidden(True)
     tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -2098,20 +2136,33 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
                 with open(metadata_path, "r") as f:
                     metadata = json.load(f)
                 last_opened_str = metadata.get("last_opened", "1970-01-01T00:00:00")
-                try:
-                    last_opened = datetime.fromisoformat(last_opened_str)
-                except:
-                    last_opened = datetime(1970, 1, 1)
+                last_opened = datetime.fromisoformat(last_opened_str)
                 sessions.append((session_name, session_path, metadata, last_opened))
             except:
-                print("Skipping session due to metadata read error.")
+                continue
 
-        # Sort by last_opened descending
         sessions.sort(key=lambda x: x[3], reverse=True)
 
+        # Apply filters
+        show_flagged = flagged_btn.isChecked()
+        show_unflagged = unflagged_btn.isChecked()
+        show_paid = paid_btn.isChecked()
+        show_unpaid = unpaid_btn.isChecked()
+
         for session_name, session_path, metadata, _ in sessions:
-            paid_status = metadata.get("paid", False)
-            status_str = "paid ✅" if paid_status else "unpaid ❌"
+            is_flagged = "-flag" in session_name
+            is_paid = metadata.get("paid", False)
+
+            if show_flagged and not is_flagged:
+                continue
+            if show_unflagged and is_flagged:
+                continue
+            if show_paid and not is_paid:
+                continue
+            if show_unpaid and is_paid:
+                continue
+
+            status_str = "paid ✅" if is_paid else "unpaid ❌"
             net = metadata.get("net_to_club", None)
             formatted_total = f"${net:.2f}" if isinstance(net, (int, float)) else "No total yet"
             display_name = f"{session_name} — {status_str} — total {formatted_total}"
@@ -2163,7 +2214,7 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
             else:
                 print("This is an old error, currently being blocked for unflagging fixing")
 
-        except Exception as e:
+        except Exception:
             print("This is an old error, currently being blocked for unflagging fixing")
             df = None
             edit_box.setEnabled(False)
@@ -2198,7 +2249,7 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
             df["AnkleBreaker notes"] = ""
         df.loc[df["Name"] == name, "AnkleBreaker notes"] = abnote_input.text()
 
-        df["default_status"] = df["Notes"].apply(determine_default_status)
+        df["default_status"] = df.apply(lambda row: determine_default_status(row["Notes"], row["Name"]), axis=1)
 
         session_path = os.path.join(SESSIONS_DIR, selected_session)
         csv_dir = os.path.join(session_path, "csv")
@@ -2208,6 +2259,21 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
         state["signals"].sessionsChanged.emit()
         state["signals"].dataChanged.emit()
         refresh_all_sessions()
+
+    # --- Filter logic connections ---
+    def update_filter(exclusive_btn, counterpart_btn):
+        if exclusive_btn.isChecked():
+            counterpart_btn.setChecked(False)
+        refresh_all_sessions()
+
+    flagged_btn.clicked.connect(lambda: update_filter(flagged_btn, unflagged_btn))
+    unflagged_btn.clicked.connect(lambda: update_filter(unflagged_btn, flagged_btn))
+    paid_btn.clicked.connect(lambda: update_filter(paid_btn, unpaid_btn))
+    unpaid_btn.clicked.connect(lambda: update_filter(unpaid_btn, paid_btn))
+
+    reset_btn.clicked.connect(lambda: [
+        btn.setChecked(False) for btn in [flagged_btn, unflagged_btn, paid_btn, unpaid_btn]
+    ] or refresh_all_sessions())
 
     tree.itemClicked.connect(on_tree_item_selected)
     tree.currentItemChanged.connect(on_tree_item_selected)
@@ -2648,6 +2714,24 @@ def load_session_from_folder(session_dir: str, stack: QStackedWidget, state: Dic
     metadata_path = os.path.join(session_dir, "metadata", "metadata.json")
     csv_dir = os.path.join(session_dir, "csv")
 
+    def determine_default_status(notes: str, name: str) -> str:
+        if str(name).strip().lower() in COMPED_NAMES:
+            return "comped"
+
+        n = str(notes).lower()
+        if "comped" in n:
+            return "comped"
+        elif "no capacity, and room on the waiting list : register" in n:
+            return "waitlist"
+        elif "refund" in n:
+            return "refund"
+        elif "manually confirmed by" in n:
+            return "manual"
+        elif "not over capacity: register" in n:
+            return "regular"
+        else:
+            return "other"
+
     if not os.path.exists(metadata_path) or not os.path.isdir(csv_dir):
         QMessageBox.warning(parent_widget, "Invalid Session", "Selected folder does not appear to be a valid session.")
         return
@@ -2657,23 +2741,7 @@ def load_session_from_folder(session_dir: str, stack: QStackedWidget, state: Dic
             metadata = json.load(f)
 
         # Inline default status logic
-        def determine_default_status(notes: str) -> str:
-            n = str(notes).lower()
-            if "comped" in n:
-                return "comped"
-            elif "no capacity, and room on the waiting list : register" in n:
-                return "waitlist"
-            elif "refund" in n:
-                return "refund"
-            elif "manually confirmed by" in n:
-                return "manual"
-            elif "not over capacity: register" in n:
-                return "regular"
-            elif "no show" in n:
-                return "no_show"
-            else:
-                return "other"
-
+        
         # Set session metadata
         state["current_session"] = session_dir
         for fn in state.get("_refresh_crud_banners", []):
@@ -2700,7 +2768,7 @@ def load_session_from_folder(session_dir: str, stack: QStackedWidget, state: Dic
                     df.columns = expected_headers
 
 
-                df["default_status"] = df["Notes"].apply(determine_default_status)
+                df["default_status"] = df.apply(lambda row: determine_default_status(row["Notes"], row["Name"]), axis=1)
                 df["current_status"] = df["default_status"]
                 df["AnkleBreaker notes"] = ""
 
