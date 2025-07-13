@@ -213,14 +213,19 @@ Medium
        All of this should be stored in the metadata
 1 cont)
        Making a list of comped people that the user can add/subtract from will be a feature for the next iteration of AB
-2*) Ability to select destination for AnkleBreaker Data folder
+2) Ability to select destination for AnkleBreaker Data folder
        Make metadata for initial run
        Should look for old metadata file and kill it(??)
-3) In all sessions tab (for editing AnkleBreaker Notes), implement filter for flagged, unpaid, and paid
+3*) In all sessions tab (for editing AnkleBreaker Notes), implement filter for flagged, unpaid, and paid
 Hard
-1) Statuses are not being remembered by the program    
+1*) Statuses are not being remembered by the program    
        Implement a metadata fix or do file IO's
-2) Total is not being updated in QTreeWidgets when fee schedule is updated
+1 conc)
+       So, it works now but the user has to click on the next button in order for the changes to be saved
+       Maybe for the next iteration have it such that the current changes are stored somewhere in the state variable
+       Then if the user tries to close the session or do anything other than click the next button it asks if the user wants to save their changes
+       Could list changes individually or just lump them into one warning
+2*) Total is not being updated in QTreeWidgets when fee schedule is updated
        When fee schedule is updated and saved to the metadata, refresh the tree widgets
        Or if the math is being done after that, do it whenever the math is done
        Make sure that the math is triggering

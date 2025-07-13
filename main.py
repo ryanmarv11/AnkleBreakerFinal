@@ -2761,7 +2761,7 @@ def load_session_from_folder(session_dir: str, stack: QStackedWidget, state: Dic
             try:
                 # Force expected structure
                 df = pd.read_csv(path)
-
+    
                 # Only apply header names if they’re not already correct
                 expected_headers = ["Name", "Email", "Phone Number", "Status", "Registration Time", "Notes"]
                 if list(df.columns[:6]) != expected_headers:
@@ -2769,7 +2769,9 @@ def load_session_from_folder(session_dir: str, stack: QStackedWidget, state: Dic
 
 
                 df["default_status"] = df.apply(lambda row: determine_default_status(row["Notes"], row["Name"]), axis=1)
-                df["current_status"] = df["default_status"]
+                if "current_status" not in df.columns:
+                    df["current_status"] = df["default_status"]
+
                 df["AnkleBreaker notes"] = ""
 
                 state["csv_paths"].append(path)
