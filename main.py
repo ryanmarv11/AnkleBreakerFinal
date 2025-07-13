@@ -56,12 +56,27 @@ class AppSignals(QObject):
     dataChanged     = pyqtSignal()   # statuses, fees, etc. tweaked
 
 
-BASE_DIR      = Path.home() / "AnkleBreakerData"
-BASE_DIR.mkdir(parents=True, exist_ok=True)
+CONFIG_PATH = Path.home() / ".anklebreaker_config.json"
+
+
+def load_config():
+    if CONFIG_PATH.exists():
+        with open(CONFIG_PATH, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_config(config):
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(config, f, indent=4)
+
+config = load_config()
+BASE_DIR = Path(config.get("base_path", str(Path.home() / "AnkleBreakerData")))
+BASE_DIR.mkdir(parents=True, exist_ok=True)  # ✅ Make sure base folder exists
 
 ROOT_METADATA_PATH = BASE_DIR / "metadata.json"
-SESSIONS_DIR       = BASE_DIR / "sessions"
-SESSIONS_DIR.mkdir(exist_ok=True)               # ensure it exists
+SESSIONS_DIR = BASE_DIR / "sessions"
+SESSIONS_DIR.mkdir(exist_ok=True)
+
 
 # Ensure metadata.json exists in the current directory
 
@@ -2880,7 +2895,6 @@ def create_main_window() -> QWidget:
     state["session_created"] = False
     state["session_deleted"] = False
 
-
     # --- Top Button Bar (AnkleBar + Past Club Sessions) ---
     top_bar = QHBoxLayout()
 
@@ -2908,18 +2922,8 @@ def create_main_window() -> QWidget:
     anklebar_menu = QMenu()
     anklebar_btn.setMenu(anklebar_menu)
 
+    # ✅ 1. Load Session
     load_folder_action = QAction("Load Session", container)
-    load_folder_action.triggered.connect(lambda: open_folder_dialog())
-    anklebar_menu.addAction(load_folder_action)
-
-    reset_session_action = QAction("Reset Session", container)
-    reset_session_action.triggered.connect(lambda: reset_session(state["stack"], state, container))
-    anklebar_menu.addAction(reset_session_action)
-
-    delete_session_action = QAction("Delete Session", container)
-    delete_session_action.triggered.connect(lambda: delete_session_dialog())
-    anklebar_menu.addAction(delete_session_action)
-
     def open_folder_dialog():
         start_dir = str(SESSIONS_DIR) if os.path.exists(SESSIONS_DIR) else str(BASE_DIR)
         folder = QFileDialog.getExistingDirectory(container, "Select Session Folder", start_dir)
@@ -2937,6 +2941,59 @@ def create_main_window() -> QWidget:
         else:
             open_folder_dialog()
 
+    load_folder_action.triggered.connect(open_folder_dialog)
+    anklebar_menu.addAction(load_folder_action)
+
+    # ✅ 2. Reset Session
+    reset_session_action = QAction("Reset Session", container)
+    reset_session_action.triggered.connect(lambda: reset_session(state["stack"], state, container))
+    anklebar_menu.addAction(reset_session_action)
+    # First: define the function
+    def launch_graphical_loader():
+        state["previous_screen_index"] = state["stack"].currentIndex()
+        state["previous_tab_index"] = state["tabs"].currentIndex()
+        state["previous_program_screen"] = state["stack"].currentIndex()
+
+        graphical_screen = create_graphical_loader_screen(state["stack"], state)
+        if state["stack"].indexOf(graphical_screen) == -1:
+            state["stack"].addWidget(graphical_screen)
+        state["tabs"].setCurrentIndex(0)
+        state["stack"].setCurrentWidget(graphical_screen)
+        past_sessions_btn.setEnabled(False)
+
+    # Then: attach to menu item
+    past_sessions_action = QAction("Past Club Sessions", container)
+    past_sessions_action.triggered.connect(launch_graphical_loader)
+    anklebar_menu.addAction(past_sessions_action)
+
+    # Then: define the button
+    past_sessions_btn = QPushButton("📂 Past Club Sessions")
+    past_sessions_btn.setFixedHeight(32)
+    past_sessions_btn.setStyleSheet(shared_button_style)
+    past_sessions_btn.clicked.connect(launch_graphical_loader)
+
+    # ✅ 3. Past Club Sessions
+    past_sessions_action = QAction("Past Club Sessions", container)
+    past_sessions_action.triggered.connect(launch_graphical_loader)
+    anklebar_menu.addAction(past_sessions_action)
+
+    # ✅ 4. Set Base Path
+    choose_base_path_action = QAction("Set Data Folder Location", container)
+    def choose_base_path_dialog():
+        new_path = QFileDialog.getExistingDirectory(container, "Choose AnkleBreaker Data Folder")
+        if not new_path:
+            return
+
+        config["base_path"] = new_path
+        save_config(config)
+
+        QMessageBox.information(container, "Restart Required", "Data folder location updated.\n\nPlease restart the application for changes to take effect.")
+
+    choose_base_path_action.triggered.connect(choose_base_path_dialog)
+    anklebar_menu.addAction(choose_base_path_action)
+
+    # ✅ 5. Delete Session
+    delete_session_action = QAction("Delete Session", container)
     def delete_session_dialog():
         start_dir = str(SESSIONS_DIR) if os.path.exists(SESSIONS_DIR) else str(BASE_DIR)
         folder = QFileDialog.getExistingDirectory(container, "Select Session Folder to Delete", start_dir)
@@ -2960,10 +3017,8 @@ def create_main_window() -> QWidget:
                     state["fee_schedule"] = {}
                 if state.get("_welcome_next_btn"):
                     state["_welcome_next_btn"].setEnabled(False)
-
                 if "refresh_current_session_label" in state and callable(state["refresh_current_session_label"]):
                     state["refresh_current_session_label"]()
-
                 for fn in state.get("_refresh_crud_banners", []):
                     fn()
                 state["signals"].sessionsChanged.emit()
@@ -2972,31 +3027,20 @@ def create_main_window() -> QWidget:
             except Exception as e:
                 QMessageBox.critical(container, "Delete Failed", f"Could not delete session:\n\n{e}")
 
-    # --- Past Club Sessions Button (no dropdown, styled the same) ---
+    delete_session_action.triggered.connect(delete_session_dialog)
+    anklebar_menu.addAction(delete_session_action)
+
+    # --- Past Club Sessions Button ---
     past_sessions_btn = QPushButton("📂 Past Club Sessions")
     past_sessions_btn.setFixedHeight(32)
     past_sessions_btn.setStyleSheet(shared_button_style)
-    def launch_graphical_loader():
-        state["previous_screen_index"] = state["stack"].currentIndex()
-        state["previous_tab_index"] = state["tabs"].currentIndex()
-        state["previous_program_screen"] = state["stack"].currentIndex()  # Needed for Back to Program
-
-
-        graphical_screen = create_graphical_loader_screen(state["stack"], state)
-        if state["stack"].indexOf(graphical_screen) == -1:
-            state["stack"].addWidget(graphical_screen)
-        state["tabs"].setCurrentIndex(0)
-        state["stack"].setCurrentWidget(graphical_screen)
-        past_sessions_btn.setEnabled(False)  # 🚫 Disable button while screen is active
-
+    
     past_sessions_btn.clicked.connect(launch_graphical_loader)
-
 
     top_bar.addWidget(anklebar_btn)
     top_bar.addWidget(past_sessions_btn)
     top_bar.addStretch()
     layout.addLayout(top_bar)
-    
 
     # --- Session Banner ---
     session_label = QLabel()
@@ -3028,7 +3072,6 @@ def create_main_window() -> QWidget:
     state["tabs"] = tabs
 
     program_tab = create_program_flow_tab(state, state["stack"])
-
     tabs.addTab(program_tab, "Program")
     tabs.addTab(create_current_session_files_tab(state), "Current Session Files")
     tabs.addTab(create_all_sessions_tab(state), "All Sessions")
@@ -3040,20 +3083,17 @@ def create_main_window() -> QWidget:
             widget.refresh()
 
     tabs.currentChanged.connect(refresh_dynamic_tab)
-        # --- Disable Past Club Sessions button while on that screen ---
+
+    # --- Disable Past Club Sessions button while on that screen ---
     def track_graphical_loader_change(index):
         current_widget = state["stack"].widget(index)
         graphical_loader_screen = None
-        # Try to find the graphical loader screen in stack
         for i in range(state["stack"].count()):
             widget = state["stack"].widget(i)
             if hasattr(widget, "is_graphical_loader") and widget.is_graphical_loader:
                 graphical_loader_screen = widget
                 break
-        if current_widget == graphical_loader_screen:
-            past_sessions_btn.setEnabled(False)
-        else:
-            past_sessions_btn.setEnabled(True)
+        past_sessions_btn.setEnabled(current_widget != graphical_loader_screen)
 
     state["stack"].currentChanged.connect(track_graphical_loader_change)
 

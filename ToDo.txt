@@ -213,7 +213,7 @@ Medium
        All of this should be stored in the metadata
 1 cont)
        Making a list of comped people that the user can add/subtract from will be a feature for the next iteration of AB
-2) Ability to select destination for AnkleBreaker Data folder
+2*) Ability to select destination for AnkleBreaker Data folder
        Make metadata for initial run
        Should look for old metadata file and kill it(??)
 3*) In all sessions tab (for editing AnkleBreaker Notes), implement filter for flagged, unpaid, and paid
