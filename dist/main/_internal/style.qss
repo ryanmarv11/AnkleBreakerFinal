@@ -1,0 +1,106 @@
+QWidget {
+    font-family: "Segoe UI", sans-serif;
+    font-size: 14px;
+    background-color: #f2f2f2;
+    color: #333333;
+}
+
+QLabel {
+    font-weight: bold;
+    color: #2a2a2a;
+}
+
+QPushButton {
+    background-color: #4a90e2;
+    color: white;
+    border-radius: 6px;
+    padding: 6px 12px;
+}
+
+QPushButton:hover {
+    background-color: #357ABD;
+}
+
+QPushButton:pressed {
+    background-color: #2C5F9E;
+}
+
+QToolButton:disabled {
+    background-color: #2e6e3e;  /* deep forest green */
+    color: white;
+    border: 1px solid #1e4e2a;
+}
+
+QPushButton.folder-button {
+    background-color: #ffe680;
+    color: #333;
+    border: 1px solid #d4af37;
+    border-radius: 10px;
+    padding: 10px;
+    min-width: 100px;
+    min-height: 80px;
+    text-align: center;
+    font-weight: bold;
+}
+
+QPushButton.folder-button:hover {
+    background-color: #ffefb3;
+    border: 1px solid #c49b26;
+}
+
+QLineEdit, QComboBox, QTextEdit, QDateEdit {
+    background-color: white;
+    border: 1px solid #cccccc;
+    border-radius: 4px;
+    padding: 4px;
+}
+
+QTableWidget {
+    background-color: white;
+    border: 1px solid #ccc;
+    gridline-color: #aaa;
+}
+
+QHeaderView::section {
+    background-color: #e6e6e6;
+    padding: 4px;
+    border: 1px solid #dcdcdc;
+    font-weight: bold;
+}
+
+QTreeWidget {
+    background-color: #ffffff;
+    border: 1px solid #ccc;
+    padding: 5px;
+}
+
+QPushButton:checked {
+    background-color: #28a745;
+    color: white;
+    font-weight: bold;
+}
+
+QPushButton:disabled {
+    background-color: #3b5b80;
+    color: #dcdcdc;
+    border: 1px solid #2c3e50;
+}
+
+QToolButton[class="folder-button"] {
+    background-color: #ffda75;
+    border: 2px solid #d1a842;
+    border-radius: 8px;
+    padding: 6px;
+    font-weight: bold;
+    color: #444;
+}
+
+QToolButton[class="folder-button"]:hover {
+    background-color: #ffe599;
+    border-color: #b28b2d;
+}
+
+QToolButton[class="folder-button"]:pressed {
+    background-color: #fcd76a;
+    border-color: #a0761a;
+}

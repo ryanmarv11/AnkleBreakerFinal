@@ -527,6 +527,8 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
                 "• Contains 'manually confirmed by' → Status: Manual\n"
                 "• Contains 'not over capacity: register' → Status: Regular\n"
                 "• Anything else → Status: Other"
+                "If it's a PayPal attendee issue, mark them as regular"
+                "If they paid cash, mark them as Manual"
             )
         )
 
