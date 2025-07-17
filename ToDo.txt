@@ -238,3 +238,7 @@ Hard
 4*) When resetting all, make it so it doesn't have that window pop up, or just default them all to 10
 5*) Change warning message and logic to be < 0, probably just remove it
 6*) Reset filters is not doing a true reset, refresh the graphic?
+
+7/17
+1) Have reset button in assign fee schedule screen reset values to 10.0
+2) Have select files and select folder button in welcome screen open to downloads folder

@@ -141,8 +141,7 @@ def load_club_dates() -> Dict[str, List[str]]:
                     if club and date:
                         club_to_dates.setdefault(club, []).append(date)
             except Exception as e:
-                print("This is an old error, currently being blocked for unflagging fixing")
-                #print(f"[ERROR] Failed to read metadata for session {f}: {e}")
+                print(f"[ERROR] Failed to read metadata for session {f}: {e}")
     return club_to_dates
 
 def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidget:
@@ -285,8 +284,7 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
                     formatted_total = f"${net:.2f}" if isinstance(net, (int, float)) else "No total yet"
                     display_name = f"{folder} — {status_str} — total {formatted_total}"
                 except Exception as e:
-                    print("This is an old error, currently being blocked for unflagging fixing")
-                #                    print(f"[ERROR] Could not read metadata for {folder}: {e}")
+                    print(f"[ERROR] Could not read metadata for {folder}: {e}")
                     display_name = folder
                 parent_item = QTreeWidgetItem([display_name])
                 parent_item.setData(0, Qt.ItemDataRole.UserRole, session_path)
@@ -451,15 +449,13 @@ def update_last_opened_metadata(session_path: str):
             with open(meta_path, "w") as f:
                 json.dump(metadata, f, indent=2)
         except Exception as e:
-            print("This is an old error, currently being blocked for unflagging fixing")
-                #            print(f"[ERROR] Could not update last_opened for {session_path}: {e}")
+            print(f"[ERROR] Could not update last_opened for {session_path}: {e}")
 
 # ---------------------------------------------------------------------
 # Screens for Program Flow Tab
 # ---------------------------------------------------------------------
 
 #This is the first screen that the user sees
-
 def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
 
     screen = QWidget()
@@ -548,7 +544,6 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
         with open(meta_path, "w") as f:
             json.dump(metadata, f, indent=2)
 
-
     def determine_default_status(notes: str, name: str) -> str:
         if str(name).strip().lower() in COMPED_NAMES:
             return "comped"
@@ -623,8 +618,12 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
 
     def select_files():
         paths, _ = QFileDialog.getOpenFileNames(
-            screen, "Select CSV Files", "", "CSV Files (*.csv);;All Files (*)"
-        )
+            screen,
+            "Select CSV Files",
+            str(Path.home() / "Downloads"),  # 👈 Set initial dir
+            "CSV Files (*.csv);;All Files (*)"
+            )
+
         if not paths:
             return
 
@@ -647,7 +646,12 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
         
     def select_folder():
         start_dir = str(SESSIONS_DIR) if os.path.exists(SESSIONS_DIR) else str(BASE_DIR)
-        folder = QFileDialog.getExistingDirectory(screen, "Select Folder Containing CSV Files", start_dir)
+        folder = QFileDialog.getExistingDirectory(
+            screen,
+            "Select Folder Containing CSV Files",
+            str(Path.home() / "Downloads")  # 👈 Set initial dir
+        )
+
         if not folder:
             return
 
@@ -676,8 +680,6 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
     layout.addWidget(QLabel("Browse Recent Sessions:"))
     layout.addWidget(tree)
 
-
-
     def refresh_session_tree():
         tree.clear()
         if not os.path.exists(SESSIONS_DIR):
@@ -689,14 +691,10 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
             meta_path = os.path.join(session_path, "metadata", "metadata.json")
             if not os.path.exists(meta_path):
                 continue
-            try:
-                with open(meta_path, "r") as f:
-                    metadata = json.load(f)
-                last_opened = metadata.get("last_opened", "1970-01-01T00:00:00")
-                sessions_with_time.append((session_name, last_opened))
-            except Exception as e:
-                print("This is an old error, currently being blocked for unflagging fixing")
-                #                print(f"[ERROR] Could not read metadata for {session_name}: {e}")
+            with open(meta_path, "r") as f:
+                metadata = json.load(f)
+            last_opened = metadata.get("last_opened", "1970-01-01T00:00:00")
+            sessions_with_time.append((session_name, last_opened))
 
         sessions_with_time.sort(
             key=lambda x: datetime.fromisoformat(x[1]) if isinstance(x[1], str) else datetime.min,
@@ -707,14 +705,9 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
             session_path = os.path.join(SESSIONS_DIR, session_name)
             meta_path = os.path.join(session_path, "metadata", "metadata.json")
             csv_path = os.path.join(session_path, "csv")
-            try:
-                with open(meta_path, "r") as f:
-                    metadata = json.load(f)
-                paid_status = metadata.get("paid", False)
-            except Exception as e:
-                print("This is an old error, currently being blocked for unflagging fixing")
-                #                print(f"[ERROR] Could not read metadata for {session_name}: {e}")
-                paid_status = False
+            with open(meta_path, "r") as f:
+                metadata = json.load(f)
+            paid_status = metadata.get("paid", False)
 
             status_text = "paid ✅" if paid_status else "unpaid ❌"
             net_total = metadata.get("net_to_club", "No total yet")
@@ -1077,160 +1070,6 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
 
     return screen
 
-def create_payment_summary_screen(stack, state) -> QWidget:
-    screen = QWidget()
-    layout = QVBoxLayout(screen)
-
-    # Top row: Mark as Unpaid | Payment Summary | Mark as Paid
-    top_row = QHBoxLayout()
-
-    unpaid_btn = QPushButton("Mark as Unpaid")
-    paid_btn = QPushButton("Mark as Paid")
-    header = QLabel("Payment Summary")
-    header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-    top_row.addWidget(unpaid_btn, alignment=Qt.AlignmentFlag.AlignLeft)
-    top_row.addStretch()
-    top_row.addWidget(header, alignment=Qt.AlignmentFlag.AlignCenter)
-    top_row.addStretch()
-    top_row.addWidget(paid_btn, alignment=Qt.AlignmentFlag.AlignRight)
-
-    layout.addLayout(top_row)
-
-    # Container layout to be refreshable
-    summary_container = QVBoxLayout()
-    layout.addLayout(summary_container)
-
-    def build_payment_summary():
-        while summary_container.count():
-            child = summary_container.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
-
-        session_dir = state.get("current_session")
-        club_name = "Club"
-        if session_dir:
-            metadata_path = os.path.join(session_dir, "metadata", "metadata.json")
-            if os.path.exists(metadata_path):
-                try:
-                    with open(metadata_path, "r") as f:
-                        metadata = json.load(f)
-                    club_name = metadata.get("club", "Club")
-                except:
-                    pass
-
-        # Status summary table
-        statuses = ["regular", "manual", "comped", "refund", "waitlist", "other"]
-        status_counts = state.get("status_counts", {})
-        filenames = list(status_counts.keys())
-
-        status_table = QTableWidget()
-        status_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        status_table.setRowCount(len(filenames) + 1)
-        status_table.setColumnCount(len(statuses))
-        status_table.setHorizontalHeaderLabels([s.capitalize() for s in statuses])
-        status_table.setVerticalHeaderLabels(filenames + ["Total"])
-
-        totals = dict.fromkeys(statuses, 0)
-        for row_idx, fname in enumerate(filenames):
-            counts = status_counts.get(fname, {})
-            for col_idx, status in enumerate(statuses):
-                count = int(counts.get(status, 0))
-                item = QTableWidgetItem(str(count))
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                status_table.setItem(row_idx, col_idx, item)
-                totals[status] += count
-
-        for col_idx, status in enumerate(statuses):
-            status_table.setItem(len(filenames), col_idx, QTableWidgetItem(str(totals[status])))
-
-        status_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        summary_container.addWidget(status_table)
-
-        # Financial table
-        summary_container.addWidget(QLabel("Financial Summary"))
-        columns = ["Gross", "TrackitHub", "PayPal", club_name]
-        financial_table = QTableWidget()
-        financial_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        financial_table.setColumnCount(len(columns))
-        financial_table.setRowCount(len(filenames) + 1)
-        financial_table.setHorizontalHeaderLabels(columns)
-        financial_table.setVerticalHeaderLabels(filenames + ["Total"])
-
-        fee_schedule = state.get("fee_schedule", {})
-        totals = dict.fromkeys(columns, 0.0)
-
-        for row_idx, fname in enumerate(filenames):
-            price = fee_schedule.get(fname, 0)
-            counts = status_counts.get(fname, {})
-            regular = counts.get("regular", 0)
-            manual = counts.get("manual", 0)
-
-            gross = (regular + manual) * price
-            trackithub = gross * 0.10
-
-            paypal = 0.0
-            for _ in range(regular):
-                paypal += price * 0.05 + 0.09 if price <= 10 else price * 0.0349 + 0.49
-
-            net_to_club = gross - trackithub - paypal
-            row_values = [gross, trackithub, paypal, net_to_club]
-
-            for col_idx, value in enumerate(row_values):
-                item = QTableWidgetItem(f"${value:.2f}")
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                financial_table.setItem(row_idx, col_idx, item)
-                totals[columns[col_idx]] += value
-
-        for col_idx, col_name in enumerate(columns):
-            financial_table.setItem(len(filenames), col_idx, QTableWidgetItem(f"${totals[col_name]:.2f}"))
-
-        financial_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        summary_container.addWidget(financial_table)
-
-    build_payment_summary()
-
-    def update_paid_status(status: bool):
-        session_dir = state.get("current_session")
-        if not session_dir:
-            QMessageBox.warning(screen, "No Session", "No active session loaded.")
-            return
-
-        meta_path = os.path.join(session_dir, "metadata", "metadata.json")
-        if not os.path.exists(meta_path):
-            QMessageBox.warning(screen, "Missing Metadata", "Metadata file not found in current session.")
-            return
-
-        try:
-            with open(meta_path, "r") as f:
-                metadata = json.load(f)
-            metadata["paid"] = status
-            with open(meta_path, "w") as f:
-                json.dump(metadata, f, indent=4)
-            QMessageBox.information(screen, "Updated", f"Session marked as {'paid' if status else 'unpaid'}.")
-            state["signals"].sessionsChanged.emit()
-        except Exception as e:
-            QMessageBox.critical(screen, "Error", f"Failed to update paid status:\n{e}")
-
-    paid_btn.clicked.connect(lambda: update_paid_status(True))
-    unpaid_btn.clicked.connect(lambda: update_paid_status(False))
-
-    def refresh_summary():
-        new_screen = create_payment_summary_screen(stack, state)
-        stack.removeWidget(stack.widget(4))
-        stack.insertWidget(4, new_screen)
-        stack.setCurrentIndex(4)
-
-    screen.refresh_summary = refresh_summary
-
-    nav_row = QHBoxLayout()
-    back_btn = QPushButton("Back")
-    back_btn.clicked.connect(lambda: stack.setCurrentIndex(3))
-    nav_row.addWidget(back_btn)
-    layout.addLayout(nav_row)
-
-    return screen
-
 
 #This is the third scrren that the user sees and is the first step after a session is created
 #A user cannot backtrack past this screen
@@ -1263,9 +1102,7 @@ def create_assign_status_screen(stack, state) -> QWidget:
     left_layout.addWidget(scroll)
     
     next_btn = QPushButton("Next")
-
     left_layout.addWidget(next_btn)
-
 
     # Right layout (Other display)
     right_layout = QVBoxLayout()
@@ -1317,57 +1154,37 @@ def create_assign_status_screen(stack, state) -> QWidget:
             for fname in sorted(os.listdir(csv_dir)):
                 if fname.endswith(".csv"):
                     path = os.path.join(csv_dir, fname)
-                    try:
-                        df = pd.read_csv(path)
-                        if "default_status" in df.columns:
-                            if "current_status" not in df.columns:
-                                df["current_status"] = df["default_status"]
-                            if path not in csv_paths:
-                                dataframes.append(df)
-                                session_csvs.append(fname)
-                                dataframes_dict[path] = df
+                    df = pd.read_csv(path)
+                    if "default_status" in df.columns:
+                        if "current_status" not in df.columns:
+                            df["current_status"] = df["default_status"]
+                        if path not in csv_paths:
+                            dataframes.append(df)
+                            session_csvs.append(fname)
+                            dataframes_dict[path] = df
 
-                    except Exception as e:
-                        print("This is an old error, currently being blocked for unflagging fixing")
-                #                        print(f"Error reading {path}: {e}")
         state["csv_paths"] = csv_paths
         state["dataframes"] = dataframes_dict
-    print("This is an old error, currently being blocked for unflagging fixing")
-    """
-    print("DEBUG CSV Paths:", csv_paths)
-    print("DEBUG DataFrames:", [list(df.columns) for df in dataframes])
-    """
     # Now continue with original function logic...
     state["status_counts"] = {}
     def propagate_file_rename(old_path: str, new_path: str, state: Dict, stack: QStackedWidget):
-                    print("This is an old error, currently being blocked for unflagging fixing")
-                    """
-                    print("[DEBUG] Final csv_paths in state:", state["csv_paths"])
-                    print("[DEBUG] Final fee_schedule keys:", state.get("fee_schedule", {}).keys())
-                    print("[DEBUG] Final status_counts keys:", state.get("status_counts", {}).keys())
-                    """
                     old_fname = os.path.basename(old_path)
                     new_fname = os.path.basename(new_path)
 
                     # Update csv_paths
                     state["csv_paths"] = [new_path if p == old_path else p for p in state["csv_paths"]]
-                    print(f"[PROPAGATE] Updated csv_paths list")
 
                     # Update dataframes
                     if old_path in state["dataframes"]:
-                        print(f"[PROPAGATE] Updated dataframes: {old_path} → {new_path}")
-
                         state["dataframes"][new_path] = state["dataframes"].pop(old_path)
 
                     # Update status_counts
                     if "status_counts" in state and old_fname in state["status_counts"]:
                         state["status_counts"][new_fname] = state["status_counts"].pop(old_fname)
-                        print(f"[PROPAGATE] Updated status_counts: {old_fname} → {new_fname}")
 
                     # Update fee_schedule
                     if "fee_schedule" in state and old_fname in state["fee_schedule"]:
                         state["fee_schedule"][new_fname] = state["fee_schedule"].pop(old_fname)
-                        print(f"[PROPAGATE] Updated fee_schedule: {old_fname} → {new_fname}")
                     # Refresh screens
                     for screen_index in [2, 3, 4]:
                         widget = stack.widget(screen_index)
@@ -1375,39 +1192,20 @@ def create_assign_status_screen(stack, state) -> QWidget:
                         if screen_index == 2:
                             assign_screen = state.get("assign_status_screen")
                             if assign_screen and hasattr(assign_screen, "refresh_file_dropdown"):
-                                try:
-                                    assign_screen.refresh_file_dropdown()
-                                    print("[PROPAGATE] Refreshed assign status screen dropdown and label")
-                                except Exception as e:
-                                    print(f"[WARN] Failed to refresh assign screen: {e}")
-                            else:
-                                print("[WARN] assign_status_screen not found or missing method")
-
-                            print("This is an old error, currently being blocked for unflagging fixing")
-                #                            print("[DEBUG] Refreshed assign status screen dropdown and label")
+                                assign_screen.refresh_file_dropdown()
                         elif screen_index == 3:
                             new_screen = create_fee_schedule_screen(stack, state)
                             stack.removeWidget(widget)
                             stack.insertWidget(3, new_screen)
-                            print("This is an old error, currently being blocked for unflagging fixing")
-                #                            print("[DEBUG] Recreated fee schedule screen at index 3 after rename")
                         elif screen_index == 4:
                             summary_screen = create_payment_summary_screen(stack, state)
                             stack.removeWidget(stack.widget(4))
                             stack.insertWidget(4, summary_screen)
-                            print("This is an old error, currently being blocked for unflagging fixing")
-                #                            print("[DEBUG] Recreated payment summary screen at index 4 after rename")
-                        else:
-                            print("This is an old error, currently being blocked for unflagging fixing")
-                #                            print(f"[WARNING] Screen at index {screen_index} does not support refresh.")
-
                     # Emit signal to trigger any reactive UI
                     state["signals"].sessionsChanged.emit()  # ✅ triggers QTreeWidgets
                     state["signals"].dataChanged.emit()
 
     def update_flag_state_for_file(csv_path, state, stack):
-
-        # Step 0: Normalize csv_path to current state
         # Step 0: Normalize csv_path to match real path in state
         for p in state["csv_paths"]:
             if os.path.basename(p) == os.path.basename(csv_path):
@@ -1421,8 +1219,6 @@ def create_assign_status_screen(stack, state) -> QWidget:
 
         still_flagged = (df["current_status"] == "other").any()
         is_flagged_file = "-flag.csv" in os.path.basename(csv_path)
-        print(f"[UNFLAG CHECK] File: {csv_path}, is_flagged_file={is_flagged_file}, still_flagged={still_flagged}")
-
         if not is_flagged_file or still_flagged:
             return  # Nothing to do
 
@@ -1441,8 +1237,6 @@ def create_assign_status_screen(stack, state) -> QWidget:
                 metadata = json.load(f)
 
         # Access check
-        print(f"[DEBUG] Checking access to file before rename: {csv_path}")
-        print(f"[DEBUG] Exists: {os.path.exists(csv_path)} | Writable: {os.access(csv_path, os.W_OK)}")
         if not (os.path.exists(csv_path) and os.access(csv_path, os.W_OK)):
             parent = os.path.dirname(csv_path)
             if not os.path.exists(parent):
@@ -1490,7 +1284,7 @@ def create_assign_status_screen(stack, state) -> QWidget:
         propagate_file_rename(csv_path, unflagged_path, state, stack)
         state["signals"].sessionsChanged.emit()
         state["signals"].dataChanged.emit()
-#version 6954
+
         # Refresh dropdown
         if hasattr(stack.widget(2), "refresh_file_dropdown"):
             stack.widget(2).refresh_file_dropdown()
@@ -1634,20 +1428,17 @@ def create_assign_status_screen(stack, state) -> QWidget:
 
         # Single-file view
         if df_index == 0 or df_index > len(dataframes):
-            print("This is an old error, currently being blocked for unflagging fixing")
-                #            print(f"[WARNING] Invalid df_index={df_index} for dataframes list of size {len(dataframes)}")
+            print(f"[WARNING] Invalid df_index={df_index} for dataframes list of size {len(dataframes)}")
             return
 
         try:
             path = state["csv_paths"][df_index - 1]
             df = state["dataframes"][path]
         except IndexError:
-            print("This is an old error, currently being blocked for unflagging fixing")
-                #            print(f"[ERROR] df_index={df_index} is out of range for csv_paths: {state['csv_paths']}")
+            print(f"[ERROR] df_index={df_index} is out of range for csv_paths: {state['csv_paths']}")
             return
         except KeyError:
-            print("This is an old error, currently being blocked for unflagging fixing")
-                #            print(f"[ERROR] No dataframe found for path: {path}")
+            print(f"[ERROR] No dataframe found for path: {path}")
             return
 
 
@@ -1714,16 +1505,14 @@ def create_assign_status_screen(stack, state) -> QWidget:
         for i, path in enumerate(state["csv_paths"]):
             df = state["dataframes"].get(path)
             if df is None:
-                print("This is an old error, currently being blocked for unflagging fixing")
-                #                print(f"[WARNING] No DataFrame found for path: {path}")
+                print(f"[WARNING] No DataFrame found for path: {path}")
                 continue
 
             folder = os.path.dirname(path)
             try:
                 os.makedirs(folder, exist_ok=True)
                 df.to_csv(path, index=False)
-                print("This is an old error, currently being blocked for unflagging fixing")
-                #                print(f"[SAVED] {path} with statuses:\n{df[['Name', 'current_status']]}")
+                print(f"[SAVED] {path} with statuses:\n{df[['Name', 'current_status']]}")
 
             except OSError as e:
                 if "non-existent directory" in str(e) and "-flag" in folder:
@@ -1776,8 +1565,7 @@ def create_assign_status_screen(stack, state) -> QWidget:
             file_dropdown.setCurrentIndex(index)
             update_person_buttons(index)
         else:
-            print("This is an old error, currently being blocked for unflagging fixing")
-                #            print(f"[WARNING] Unexpected dropdown text: {selected_text}")
+            print(f"[WARNING] Unexpected dropdown text: {selected_text}")
             update_person_buttons(0)
 
         update_other_display()
@@ -1984,10 +1772,11 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
     def reset_all():
         bulk_input.clear()
         for field in fee_inputs.values():
-            field.clear()
-        state["fee_schedule"].clear()
+            field.setText("10.00")
+        state["fee_schedule"] = {fname: 10.00 for fname in fee_inputs}
         save_fee_schedule()
         update_next_button_state()
+
 
     assign_all_btn = QPushButton("Assign All")
     assign_all_btn.clicked.connect(assign_all)
@@ -2029,6 +1818,159 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
 
     return screen
 
+def create_payment_summary_screen(stack, state) -> QWidget:
+    screen = QWidget()
+    layout = QVBoxLayout(screen)
+
+    # Top row: Mark as Unpaid | Payment Summary | Mark as Paid
+    top_row = QHBoxLayout()
+
+    unpaid_btn = QPushButton("Mark as Unpaid")
+    paid_btn = QPushButton("Mark as Paid")
+    header = QLabel("Payment Summary")
+    header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    top_row.addWidget(unpaid_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+    top_row.addStretch()
+    top_row.addWidget(header, alignment=Qt.AlignmentFlag.AlignCenter)
+    top_row.addStretch()
+    top_row.addWidget(paid_btn, alignment=Qt.AlignmentFlag.AlignRight)
+
+    layout.addLayout(top_row)
+
+    # Container layout to be refreshable
+    summary_container = QVBoxLayout()
+    layout.addLayout(summary_container)
+
+    def build_payment_summary():
+        while summary_container.count():
+            child = summary_container.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+        session_dir = state.get("current_session")
+        club_name = "Club"
+        if session_dir:
+            metadata_path = os.path.join(session_dir, "metadata", "metadata.json")
+            if os.path.exists(metadata_path):
+                try:
+                    with open(metadata_path, "r") as f:
+                        metadata = json.load(f)
+                    club_name = metadata.get("club", "Club")
+                except:
+                    pass
+
+        # Status summary table
+        statuses = ["regular", "manual", "comped", "refund", "waitlist", "other"]
+        status_counts = state.get("status_counts", {})
+        filenames = list(status_counts.keys())
+
+        status_table = QTableWidget()
+        status_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        status_table.setRowCount(len(filenames) + 1)
+        status_table.setColumnCount(len(statuses))
+        status_table.setHorizontalHeaderLabels([s.capitalize() for s in statuses])
+        status_table.setVerticalHeaderLabels(filenames + ["Total"])
+
+        totals = dict.fromkeys(statuses, 0)
+        for row_idx, fname in enumerate(filenames):
+            counts = status_counts.get(fname, {})
+            for col_idx, status in enumerate(statuses):
+                count = int(counts.get(status, 0))
+                item = QTableWidgetItem(str(count))
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                status_table.setItem(row_idx, col_idx, item)
+                totals[status] += count
+
+        for col_idx, status in enumerate(statuses):
+            status_table.setItem(len(filenames), col_idx, QTableWidgetItem(str(totals[status])))
+
+        status_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        summary_container.addWidget(status_table)
+
+        # Financial table
+        summary_container.addWidget(QLabel("Financial Summary"))
+        columns = ["Gross", "TrackitHub", "PayPal", club_name]
+        financial_table = QTableWidget()
+        financial_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        financial_table.setColumnCount(len(columns))
+        financial_table.setRowCount(len(filenames) + 1)
+        financial_table.setHorizontalHeaderLabels(columns)
+        financial_table.setVerticalHeaderLabels(filenames + ["Total"])
+
+        fee_schedule = state.get("fee_schedule", {})
+        totals = dict.fromkeys(columns, 0.0)
+
+        for row_idx, fname in enumerate(filenames):
+            price = fee_schedule.get(fname, 0)
+            counts = status_counts.get(fname, {})
+            regular = counts.get("regular", 0)
+            manual = counts.get("manual", 0)
+
+            gross = (regular + manual) * price
+            trackithub = gross * 0.10
+
+            paypal = 0.0
+            for _ in range(regular):
+                paypal += price * 0.05 + 0.09 if price <= 10 else price * 0.0349 + 0.49
+
+            net_to_club = gross - trackithub - paypal
+            row_values = [gross, trackithub, paypal, net_to_club]
+
+            for col_idx, value in enumerate(row_values):
+                item = QTableWidgetItem(f"${value:.2f}")
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                financial_table.setItem(row_idx, col_idx, item)
+                totals[columns[col_idx]] += value
+
+        for col_idx, col_name in enumerate(columns):
+            financial_table.setItem(len(filenames), col_idx, QTableWidgetItem(f"${totals[col_name]:.2f}"))
+
+        financial_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        summary_container.addWidget(financial_table)
+
+    build_payment_summary()
+
+    def update_paid_status(status: bool):
+        session_dir = state.get("current_session")
+        if not session_dir:
+            QMessageBox.warning(screen, "No Session", "No active session loaded.")
+            return
+
+        meta_path = os.path.join(session_dir, "metadata", "metadata.json")
+        if not os.path.exists(meta_path):
+            QMessageBox.warning(screen, "Missing Metadata", "Metadata file not found in current session.")
+            return
+
+        try:
+            with open(meta_path, "r") as f:
+                metadata = json.load(f)
+            metadata["paid"] = status
+            with open(meta_path, "w") as f:
+                json.dump(metadata, f, indent=4)
+            QMessageBox.information(screen, "Updated", f"Session marked as {'paid' if status else 'unpaid'}.")
+            state["signals"].sessionsChanged.emit()
+        except Exception as e:
+            QMessageBox.critical(screen, "Error", f"Failed to update paid status:\n{e}")
+
+    paid_btn.clicked.connect(lambda: update_paid_status(True))
+    unpaid_btn.clicked.connect(lambda: update_paid_status(False))
+
+    def refresh_summary():
+        new_screen = create_payment_summary_screen(stack, state)
+        stack.removeWidget(stack.widget(4))
+        stack.insertWidget(4, new_screen)
+        stack.setCurrentIndex(4)
+
+    screen.refresh_summary = refresh_summary
+
+    nav_row = QHBoxLayout()
+    back_btn = QPushButton("Back")
+    back_btn.clicked.connect(lambda: stack.setCurrentIndex(3))
+    nav_row.addWidget(back_btn)
+    layout.addLayout(nav_row)
+
+    return screen
 
 # ---------------------------------------------------------------------
 # Tabs
@@ -2569,8 +2511,7 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
         table.setColumnCount(0)
 
         selected_club = club_dropdown.currentText()
-        print("This is an old error, currently being blocked for unflagging fixing")
-                #        print(f"[UI] Selected club: {selected_club}")
+        print(f"[UI] Selected club: {selected_club}")
         if selected_club in club_session_file_map:
             sessions = sorted(club_session_file_map[selected_club].keys())
             session_dropdown.addItems(sessions)
@@ -2589,8 +2530,7 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
 
         selected_club = club_dropdown.currentText()
         selected_session = session_dropdown.currentText()
-        print("This is an old error, currently being blocked for unflagging fixing")
-                #        print(f"[UI] Selected session: {selected_session}")
+        print(f"[UI] Selected session: {selected_session}")
         if selected_club in club_session_file_map and selected_session in club_session_file_map[selected_club]:
             file_names = [f for (_, f) in club_session_file_map[selected_club][selected_session]]
             file_dropdown.addItems(file_names)
@@ -2604,8 +2544,7 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
         selected_club = club_dropdown.currentText()
         selected_session = session_dropdown.currentText()
         selected_file = file_dropdown.currentText()
-        print("This is an old error, currently being blocked for unflagging fixing")
-                #        print(f"[UI] Selected file: {selected_file}")
+        print(f"[UI] Selected file: {selected_file}")
         if not (selected_club and selected_session and selected_file):
             return
         for folder, fname in club_session_file_map[selected_club][selected_session]:
@@ -2628,18 +2567,15 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
                     club = meta.get("club")
 
             if not club or club not in club_session_file_map:
-                print("This is an old error, currently being blocked for unflagging fixing")
-                #                print(f"[WARN] Club not found: {club}")
+                print(f"[WARN] Club not found: {club}")
                 return
             if session_name not in club_session_file_map[club]:
-                print("This is an old error, currently being blocked for unflagging fixing")
-                #                print(f"[WARN] Session not found: {session_name}")
+                print(f"[WARN] Session not found: {session_name}")
                 return
             file = path.name
             files = [f for (_, f) in club_session_file_map[club][session_name]]
             if file not in files:
-                print("This is an old error, currently being blocked for unflagging fixing")
-                #                print(f"[WARN] File not found: {file}")
+                print(f"[WARN] File not found: {file}")
                 return
 
             club_dropdown.blockSignals(True)
@@ -2658,8 +2594,7 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
             file_dropdown.blockSignals(False)
 
         except Exception as e:
-            print("This is an old error, currently being blocked for unflagging fixing")
-                #            print(f"[ERROR] Failed to load file from path: {e}")
+            print(f"[ERROR] Failed to load file from path: {e}")
 
     def connect_file_viewer_signals():
         flagged_signals = state.get("flagged_tab_signals")
@@ -3083,8 +3018,7 @@ def main() -> None:
         with open(qss_path, "r") as f:
             app.setStyleSheet(f.read())
     except Exception as e:
-        print("This is an old error, currently being blocked for unflagging fixing")
-                #        print(f"Warning: Failed to load stylesheet ({qss_path}): {e}")
+        print(f"Warning: Failed to load stylesheet ({qss_path}): {e}")
 
     main_widget = create_main_window()
 
