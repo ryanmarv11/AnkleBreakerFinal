@@ -231,3 +231,10 @@ Hard
        Make sure that the math is triggering
               Maybe have the math refresh whenever a fee schedule changes?
 
+7/16
+1*) Disable create session button while there is a current session
+2*) Remove duplicate PCS entry
+3*) Make bullet point for PayPal in Welcome Screen tooltip
+4*) When resetting all, make it so it doesn't have that window pop up, or just default them all to 10
+5*) Change warning message and logic to be < 0, probably just remove it
+6*) Reset filters is not doing a true reset, refresh the graphic?

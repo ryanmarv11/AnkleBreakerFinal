@@ -55,8 +55,14 @@ class AppSignals(QObject):
     clubsChanged    = pyqtSignal()   # club added/removed
     dataChanged     = pyqtSignal()   # statuses, fees, etc. tweaked
 
+class WheelEventFilter(QObject):
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Wheel:
+            return True  # Block the wheel event
+        return super().eventFilter(obj, event)
 
-CONFIG_PATH = Path.home() / ".anklebreaker_config.json"
+
+CONFIG_PATH = Path.home() / "metadata.json" #just changed this
 
 
 def load_config():
@@ -76,9 +82,6 @@ BASE_DIR.mkdir(parents=True, exist_ok=True)  # ✅ Make sure base folder exists
 ROOT_METADATA_PATH = BASE_DIR / "metadata.json"
 SESSIONS_DIR = BASE_DIR / "sessions"
 SESSIONS_DIR.mkdir(exist_ok=True)
-
-
-# Ensure metadata.json exists in the current directory
 
 DEFAULT_CLUBS = ["Zorano"]
 COMPED_NAMES = {
@@ -121,7 +124,6 @@ def go_back_to_program(state: Dict):
     state["tabs"].setCurrentIndex(0)  # Program tab
     screen_index = state.get("previous_program_screen", 0)
     state["stack"].setCurrentIndex(screen_index)
-
 
 def load_club_dates() -> Dict[str, List[str]]:
     club_to_dates = {}
@@ -435,12 +437,6 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
     scr.is_graphical_loader = True
     return scr
 
-class WheelEventFilter(QObject):
-    def eventFilter(self, obj, event):
-        if event.type() == QEvent.Type.Wheel:
-            return True  # Block the wheel event
-        return super().eventFilter(obj, event)
-
 
 def update_last_opened_metadata(session_path: str):
         meta_path = os.path.join(session_path, "metadata", "metadata.json")
@@ -469,8 +465,6 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
     screen = QWidget()
     layout = QVBoxLayout(screen)
 
-
-
     top_row = QHBoxLayout()
 
     label = QLabel("Welcome to the AnkleBreaker")
@@ -478,8 +472,6 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
 
     next_btn = QPushButton("Next")
     state["_welcome_next_btn"] = next_btn
-
-
 
     next_btn.setEnabled(False)
     next_btn.setFixedWidth(150)
@@ -489,7 +481,6 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
     top_row.addWidget(next_btn)
 
     layout.addLayout(top_row)
-
 
     file_label = QLabel("No files selected.")
     layout.addWidget(file_label)
@@ -508,8 +499,6 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
     state["_upload_files_btn"] = select_files_btn
     state["_upload_folder_btn"] = select_folder_btn
 
-
-    # --- ADDED BUTTON ---
     graphical_loader_btn = QPushButton("Past Club Sessions")
     layout.addWidget(graphical_loader_btn)
     info_btn = QPushButton("ℹ️ Notes Format")
@@ -526,9 +515,9 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
                 "• Contains 'refund' → Status: Refund\n"
                 "• Contains 'manually confirmed by' → Status: Manual\n"
                 "• Contains 'not over capacity: register' → Status: Regular\n"
-                "• Anything else → Status: Other"
-                "If it's a PayPal attendee issue, mark them as regular"
-                "If they paid cash, mark them as Manual"
+                "• Anything else → Status: Other\n"
+                "• If it's a PayPal attendee issue, mark them as regular\n"
+                "• If they paid cash, mark them as Manual"
             )
         )
 
@@ -549,19 +538,16 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
     # Track last opened timestamp
     def update_last_opened_metadata(session_path: str):
         meta_path = os.path.join(session_path, "metadata", "metadata.json")
-        try:
-            if os.path.exists(meta_path):
-                with open(meta_path, "r") as f:
-                    metadata = json.load(f)
-            else:
-                metadata = {}
-            metadata["last_opened"] = datetime.now().isoformat()
-            os.makedirs(os.path.dirname(meta_path), exist_ok=True)
-            with open(meta_path, "w") as f:
-                json.dump(metadata, f, indent=2)
-        except Exception as e:
-            print("This is an old error, currently being blocked for unflagging fixing")
-                #            print(f"[ERROR] Could not update last_opened for {session_path}: {e}")
+        if os.path.exists(meta_path):
+            with open(meta_path, "r") as f:
+                metadata = json.load(f)
+        else:
+            metadata = {}
+        metadata["last_opened"] = datetime.now().isoformat()
+        os.makedirs(os.path.dirname(meta_path), exist_ok=True)
+        with open(meta_path, "w") as f:
+            json.dump(metadata, f, indent=2)
+
 
     def determine_default_status(notes: str, name: str) -> str:
         if str(name).strip().lower() in COMPED_NAMES:
@@ -778,7 +764,7 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
     screen = QWidget()
     main_layout = QHBoxLayout(screen)
     state["_wheel_filter"] = state.get("_wheel_filter") or WheelEventFilter()
-    def determine_default_status(notes: str) -> str:
+    def determine_default_status(notes: str, name: str) -> str:
         n = str(notes).lower()
         if "comped" in n:
             return "comped"
@@ -1037,6 +1023,8 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
         stack.removeWidget(stack.widget(2))
         stack.insertWidget(2, assign_screen)
         next_btn.setEnabled(True)  # ✅ Enable manual progression after session is created
+        create_btn.setEnabled(False)  # ⛔ Prevent creating again without reset
+
 
 
     create_btn.clicked.connect(show_confirmation_dialog)
@@ -1937,12 +1925,12 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
             text = inp.text()
             try:
                 value = float(text)
-                if value < 1:  # Matches new rule: values must be >= 1
+                if value < 0:  # Matches new rule: values must be >= 1
                     raise ValueError
                 prices[fname] = round(value, 2)
                 state["fee_schedule"][fname] = round(value, 2)
             except ValueError:
-                QMessageBox.warning(screen, "Invalid Fee", f"Invalid fee for {fname}. Please enter a number >= 1.")
+                QMessageBox.warning(screen, "Invalid Fee", f"Invalid fee for {fname}. Please enter a number >= 0.")
                 return
 
         try:
@@ -2061,8 +2049,6 @@ def create_program_flow_tab(state: Dict, stack:QStackedWidget) -> QStackedWidget
 
 
 def create_all_sessions_tab(state: Dict) -> QWidget:
-    from datetime import datetime
-
     class AllSessionsTabSignals(QObject):
         fileDoubleClicked = pyqtSignal(str)
 
@@ -2122,7 +2108,7 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
     selected_file = None
     df = None
 
-    def determine_default_status(notes: str) -> str:
+    def determine_default_status(notes: str, name: str) -> str:
         n = str(notes).lower()
         if "comped" in n:
             return "comped"
@@ -2228,11 +2214,8 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
                     on_name_selected(name_dropdown.currentText())
 
                 edit_box.setEnabled(True)
-            else:
-                print("This is an old error, currently being blocked for unflagging fixing")
 
         except Exception:
-            print("This is an old error, currently being blocked for unflagging fixing")
             df = None
             edit_box.setEnabled(False)
 
@@ -2264,7 +2247,9 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
             return
         if "AnkleBreaker notes" not in df.columns:
             df["AnkleBreaker notes"] = ""
+        df["AnkleBreaker notes"] = df["AnkleBreaker notes"].astype(str)
         df.loc[df["Name"] == name, "AnkleBreaker notes"] = abnote_input.text()
+
 
         df["default_status"] = df.apply(lambda row: determine_default_status(row["Notes"], row["Name"]), axis=1)
 
@@ -2288,9 +2273,13 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
     paid_btn.clicked.connect(lambda: update_filter(paid_btn, unpaid_btn))
     unpaid_btn.clicked.connect(lambda: update_filter(unpaid_btn, paid_btn))
 
-    reset_btn.clicked.connect(lambda: [
-        btn.setChecked(False) for btn in [flagged_btn, unflagged_btn, paid_btn, unpaid_btn]
-    ] or refresh_all_sessions())
+    def full_refresh_filters():
+        for btn in [flagged_btn, unflagged_btn, paid_btn, unpaid_btn]:
+            btn.setChecked(False)
+        refresh_all_sessions()
+
+    reset_btn.clicked.connect(full_refresh_filters)
+
 
     tree.itemClicked.connect(on_tree_item_selected)
     tree.currentItemChanged.connect(on_tree_item_selected)
@@ -2520,33 +2509,18 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
 
     def load_club_session_file_structure():
         structure = defaultdict(lambda: defaultdict(list))
-        print("This is an old error, currently being blocked for unflagging fixing")
-                #        print(f"[DEBUG] Scanning sessions in: {SESSIONS_DIR}")
         for session_name in os.listdir(SESSIONS_DIR):
             session_path = os.path.join(SESSIONS_DIR, session_name)
-            print("This is an old error, currently being blocked for unflagging fixing")
-                #            print(f"  ├── Checking session: {session_name}")
-
             if not os.path.isdir(session_path):
-                print("This is an old error, currently being blocked for unflagging fixing")
-                #                print("     [SKIP] Not a directory")
                 continue
-
             try:
                 # Extract club name from session folder name
                 parts = session_name.split("-")
                 if len(parts) < 3:
-                    print("This is an old error, currently being blocked for unflagging fixing")
-                #                    print("     [SKIP] Invalid session name format")
                     continue
                 club = parts[1]
-                print("This is an old error, currently being blocked for unflagging fixing")
-                #                print(f"     [CLUB] Parsed club: {club}")
-
                 csv_path = os.path.join(session_path, "csv")
                 if not os.path.isdir(csv_path):
-                    print("This is an old error, currently being blocked for unflagging fixing")
-                #                    print("     [SKIP] Missing csv folder")
                     continue
 
                 for fname in os.listdir(csv_path):
@@ -2556,18 +2530,12 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
                             structure[club][session_name].append((session_path, fname))
 
             except Exception as e:
-                print("This is an old error, currently being blocked for unflagging fixing")
-                #                print(f"[ERROR] Skipping session {session_name}: {e}")
                 continue
-
-        print("This is an old error, currently being blocked for unflagging fixing")
-                #        print(f"[DEBUG] Final club-session-file structure:\n{structure}")
         return structure
 
     def refresh_dropdowns():
         nonlocal club_session_file_map
-        print("This is an old error, currently being blocked for unflagging fixing")
-                #        print("[REFRESH] Refreshing Browse All Files tab")
+
         club_session_file_map = load_club_session_file_structure()
 
         club_dropdown.blockSignals(True)
@@ -2973,11 +2941,6 @@ def create_main_window() -> QWidget:
     past_sessions_btn.setFixedHeight(32)
     past_sessions_btn.setStyleSheet(shared_button_style)
     past_sessions_btn.clicked.connect(launch_graphical_loader)
-
-    # ✅ 3. Past Club Sessions
-    past_sessions_action = QAction("Past Club Sessions", container)
-    past_sessions_action.triggered.connect(launch_graphical_loader)
-    anklebar_menu.addAction(past_sessions_action)
 
     # ✅ 4. Set Base Path
     choose_base_path_action = QAction("Set Data Folder Location", container)
