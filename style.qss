@@ -1,6 +1,7 @@
+
 QWidget {
     font-family: "Segoe UI", sans-serif;
-    font-size: 14px;
+    font-size: 18px;
     background-color: #f2f2f2;
     color: #333333;
 }
@@ -8,13 +9,75 @@ QWidget {
 QLabel {
     font-weight: bold;
     color: #2a2a2a;
+    font-size: 18px;
 }
+
+QComboBox {
+    background-color: white;
+    border: 1px solid #cccccc;
+    border-radius: 4px;
+    padding: 2px 30px 2px 6px; 
+    font-size: 18px;
+    min-height: 32px;
+    margin-top: -4px;
+    padding-top: 2px;  
+    margin-top: -2px; 
+    min-height: 36px;
+}
+
+QLineEdit, QTextEdit, QDateEdit {
+    background-color: white;
+    border: 1px solid #cccccc;
+    border-radius: 4px;
+    padding: 6px;
+    font-size: 18px;
+}
+
+QTableWidget {
+    background-color: white;
+    border: 1px solid #ccc;
+    gridline-color: #aaa;
+    font-size: 17px;
+}
+
+QHeaderView::section {
+    background-color: #e6e6e6;
+    padding: 6px;
+    border: 1px solid #dcdcdc;
+    font-weight: bold;
+    font-size: 17px;
+}
+
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 20px;
+    border-left: 1px solid #cccccc;
+    margin-top: 2px;  /* ✅ Arrow container moves slightly up */
+    margin-right: 4px; /* ✅ Arrow nudges left */
+}
+
+QComboBox::down-arrow {
+    image: url(:/qt-project.org/styles/commonstyle/images/arrowdown.png);
+    width: 12px;
+    height: 12px;
+}
+
+QTreeWidget {
+    background-color: #ffffff;
+    border: 1px solid #ccc;
+    padding: 6px;
+    font-size: 17px;
+}
+
 
 QPushButton {
     background-color: #4a90e2;
     color: white;
     border-radius: 6px;
-    padding: 6px 12px;
+    padding: 8px 14px;
+    font-size: 18px;
 }
 
 QPushButton:hover {
@@ -25,74 +88,29 @@ QPushButton:pressed {
     background-color: #2C5F9E;
 }
 
-QToolButton:disabled {
-    background-color: #2e6e3e;  /* deep forest green */
-    color: white;
-    border: 1px solid #1e4e2a;
-}
-
-QPushButton.folder-button {
-    background-color: #ffe680;
-    color: #333;
-    border: 1px solid #d4af37;
-    border-radius: 10px;
-    padding: 10px;
-    min-width: 100px;
-    min-height: 80px;
-    text-align: center;
-    font-weight: bold;
-}
-
-QPushButton.folder-button:hover {
-    background-color: #ffefb3;
-    border: 1px solid #c49b26;
-}
-
-QLineEdit, QComboBox, QTextEdit, QDateEdit {
-    background-color: white;
-    border: 1px solid #cccccc;
-    border-radius: 4px;
-    padding: 4px;
-}
-
-QTableWidget {
-    background-color: white;
-    border: 1px solid #ccc;
-    gridline-color: #aaa;
-}
-
-QHeaderView::section {
-    background-color: #e6e6e6;
-    padding: 4px;
-    border: 1px solid #dcdcdc;
-    font-weight: bold;
-}
-
-QTreeWidget {
-    background-color: #ffffff;
-    border: 1px solid #ccc;
-    padding: 5px;
-}
-
 QPushButton:checked {
     background-color: #28a745;
     color: white;
     font-weight: bold;
+    font-size: 18px;
 }
 
 QPushButton:disabled {
     background-color: #3b5b80;
     color: #dcdcdc;
     border: 1px solid #2c3e50;
+    font-size: 18px;
 }
+
 
 QToolButton[class="folder-button"] {
     background-color: #ffda75;
     border: 2px solid #d1a842;
     border-radius: 8px;
-    padding: 6px;
+    padding: 8px;
     font-weight: bold;
     color: #444;
+    font-size: 18px;
 }
 
 QToolButton[class="folder-button"]:hover {
@@ -103,4 +121,43 @@ QToolButton[class="folder-button"]:hover {
 QToolButton[class="folder-button"]:pressed {
     background-color: #fcd76a;
     border-color: #a0761a;
+}
+
+
+QToolButton:disabled {
+    background-color: #2e6e3e;
+    color: white;
+    border: 1px solid #1e4e2a;
+    font-size: 18px;
+}
+
+
+QToolButton#navBackButton {
+    font-size: 16px;
+    padding: 4px;
+}
+
+
+QLabel#fileHeaderLabel {
+    font-size: 16pt;
+    font-weight: bold;
+    padding: 6px;
+}
+
+QPushButton[class="menu-button"] {
+    background-color: #5b7db1;
+    color: white;
+    font-weight: bold;
+    padding: 6px 14px;
+    border-radius: 6px;
+}
+
+QPushButton[class="menu-button"]:hover {
+    background-color: #486a9c;
+}
+
+QLabel#sessionStatusLabel {
+    font-style: italic;
+    padding-left: 8px;
+    color: #333;
 }

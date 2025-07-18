@@ -244,11 +244,15 @@ Hard
 2) Have select files and select folder button in welcome screen open to downloads folder
 
 Part 2
-1) Next button removed in create session screen
-2) Window size bigger, make sure that it scales when window is further expanded
-3) Divide other graphic in two, have the bottom half be the counts
-4) After marking as paid, and clicking ok, bring user to all sessions screen
+1*) Next button removed in create session screen
+2*) Window size bigger, make sure that it scales when window is further expanded
+3*) Divide other graphic in two, have the bottom half be the counts
+4*) After marking as paid, and clicking ok, bring user to all sessions screen
 5) Make it load faster!
-6) Session creation is making a duplicate session folder but all folders are empty
-7) Move the notes button to assign status screen
+6*) Session creation is making a duplicate session folder but all folders are empty
+7*) Move the notes button to assign status screen
+8*) Change set data folder location to make the folder
 For the future) If we could have the amount that was paid in the notes, something for processing it if it's in the price
+
+Temporary) Put the margins back in between buttons in the top right
+Make button sizes the same for view all and individual file view

@@ -1,4 +1,3 @@
-# Standard library imports
 import json
 import os
 import re
@@ -15,8 +14,8 @@ from typing import Dict, List
 import pandas as pd
 
 # PyQt6 imports
-from PyQt6.QtCore import QDate, QObject, QEvent, Qt, QSize, pyqtSignal
-from PyQt6.QtGui import QAction, QIcon, QDoubleValidator, QColor
+from PyQt6.QtCore import QDate, QObject, QEvent, Qt, QSize, pyqtSignal, QSettings
+from PyQt6.QtGui import QAction, QIcon, QDoubleValidator, QColor, QFont
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -34,8 +33,10 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMenu,
     QMessageBox,
-    QPushButton,
+    QPushButton,    
     QScrollArea,
+    QSizePolicy,
+    QSpacerItem,
     QStackedWidget,
     QTabWidget,
     QTableWidget,
@@ -49,11 +50,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-
-class AppSignals(QObject):
-    sessionsChanged = pyqtSignal()   # new/edited/deleted session folders
-    clubsChanged    = pyqtSignal()   # club added/removed
-    dataChanged     = pyqtSignal()   # statuses, fees, etc. tweaked
+class SignalBus(QObject):
+    sessionsChanged = pyqtSignal()
+    clubsChanged = pyqtSignal()
+    dataChanged = pyqtSignal()
+    # Add more signals here as needed
 
 class WheelEventFilter(QObject):
     def eventFilter(self, obj, event):
@@ -61,22 +62,10 @@ class WheelEventFilter(QObject):
             return True  # Block the wheel event
         return super().eventFilter(obj, event)
 
+settings = QSettings("TrackitHub", "AnkleBreaker")
 
-CONFIG_PATH = Path.home() / "metadata.json" #just changed this
-
-
-def load_config():
-    if CONFIG_PATH.exists():
-        with open(CONFIG_PATH, "r") as f:
-            return json.load(f)
-    return {}
-
-def save_config(config):
-    with open(CONFIG_PATH, "w") as f:
-        json.dump(config, f, indent=4)
-
-config = load_config()
-BASE_DIR = Path(config.get("base_path", str(Path.home() / "AnkleBreakerData")))
+base_path = settings.value("base_path", str(Path.home() / "AnkleBreakerData"))
+BASE_DIR = Path(base_path)
 BASE_DIR.mkdir(parents=True, exist_ok=True)  # ✅ Make sure base folder exists
 
 ROOT_METADATA_PATH = BASE_DIR / "metadata.json"
@@ -97,14 +86,57 @@ COMPED_NAMES = {
     "anderson leclair",
     "the ghost"
 }
+STATUS_LIST = ["regular", "manual", "comped", "refund", "waitlist", "other"]
 
+def write_metadata(meta_path: str, metadata: dict):
+    """Writes a metadata dictionary to disk."""
+    try:
+        os.makedirs(os.path.dirname(meta_path), exist_ok=True)
+        with open(meta_path, "w") as f:
+            json.dump(metadata, f, indent=4)
+    except Exception as e:
+        print(f"[ERROR] Failed to write metadata to {meta_path}: {e}")
+
+def determine_default_status(notes: str, name: str) -> str:
+    """Returns default status for a participant based on notes and name."""
+    name_lower = str(name).strip().lower()
+    if name_lower in COMPED_NAMES:
+        return "comped"
+
+    notes_lower = str(notes).lower()
+    if "comped" in notes_lower:
+        return "comped"
+    elif "no capacity, and room on the waiting list : register" in notes_lower:
+        return "waitlist"
+    elif "refund" in notes_lower:
+        return "refund"
+    elif "manually confirmed by" in notes_lower:
+        return "manual"
+    elif "not over capacity: register" in notes_lower:
+        return "regular"
+    else:
+        return "other"
 
 def load_global_metadata() -> dict:
     if not os.path.exists(ROOT_METADATA_PATH):
+        default_data = {"clubs": DEFAULT_CLUBS}
         with open(ROOT_METADATA_PATH, "w") as f:
-            json.dump({"clubs": DEFAULT_CLUBS}, f, indent=4)
-    with open(ROOT_METADATA_PATH) as f:
-        return json.load(f)
+            json.dump(default_data, f, indent=4)
+        return default_data
+
+    try:
+        with open(ROOT_METADATA_PATH) as f:
+            data = json.load(f)
+            if "clubs" not in data:
+                data["clubs"] = DEFAULT_CLUBS
+                save_global_metadata(data)
+            return data
+    except Exception:
+        # fallback: reset metadata file
+        default_data = {"clubs": DEFAULT_CLUBS}
+        with open(ROOT_METADATA_PATH, "w") as f:
+            json.dump(default_data, f, indent=4)
+        return default_data
 
 def save_global_metadata(data: dict):
     with open(ROOT_METADATA_PATH, "w") as f:
@@ -144,18 +176,29 @@ def load_club_dates() -> Dict[str, List[str]]:
                 print(f"[ERROR] Failed to read metadata for session {f}: {e}")
     return club_to_dates
 
+def get_csv_paths_from_dir(csv_dir: str | Path) -> List[str]:
+    if not os.path.isdir(csv_dir):
+        return []
+    return sorted([
+        os.path.join(csv_dir, f)
+        for f in os.listdir(csv_dir)
+        if f.endswith(".csv")
+    ])
+
 def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidget:
     scr = QWidget()
     layout = QVBoxLayout(scr)
-    layout.setContentsMargins(12, 12, 12, 12)
+    layout.setSpacing(8)
 
     # Back to Welcome button (top-left)
     top_bar = QHBoxLayout()
-    top_bar.setContentsMargins(0, 0, 0, 0)
+    top_bar.setContentsMargins(10, 10, 10, 10)  # Add margin around the bar
+    top_bar.setSpacing(12)                      # Add spacing between buttons
+
 
     back_to_previous_btn = QToolButton()
     back_to_previous_btn.setText("← Previous Screen")
-    back_to_previous_btn.setStyleSheet("font-size: 16px; padding: 4px;")
+    back_to_previous_btn.setObjectName("navBackButton")
     back_to_previous_btn.clicked.connect(lambda: go_back_to_previous(state))
     top_bar.addWidget(back_to_previous_btn)
     
@@ -165,7 +208,7 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
     # Right: Back to Program button
     back_to_program_btn = QToolButton()
     back_to_program_btn.setText("Back to Program")
-    back_to_program_btn.setStyleSheet("font-size: 16px; padding: 4px;")
+    back_to_program_btn.setObjectName("navBackButton")
     back_to_program_btn.clicked.connect(lambda: go_back_to_program(state))
     top_bar.addWidget(back_to_program_btn)
     layout.addLayout(top_bar)
@@ -175,17 +218,9 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
     back_btn = QToolButton()
     back_btn.setText("← Back")
     back_btn.setVisible(False)
-    back_btn.setStyleSheet("""
-        QToolButton {
-            background-color: #5b7db1;
-            color: white;
-            border-radius: 6px;
-            padding: 4px 10px;
-        }
-        QToolButton:hover {
-            background-color: #486a9c;
-        }
-    """)
+    btn.setProperty("class", "folder-button")
+    btn.style().unpolish(btn)
+    btn.style().polish(btn)
 
     # Header and Back button in same row
     header = QLabel("Select a Club")
@@ -197,7 +232,6 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
     header_layout.addWidget(header, alignment=Qt.AlignmentFlag.AlignCenter)
     header_layout.addStretch()
     layout.addLayout(header_layout)
-
 
     content_widget = QWidget()
     content_layout = QGridLayout(content_widget)
@@ -340,8 +374,8 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
             with open(meta_path, "r") as f:
                 metadata = json.load(f)
             metadata["paid"] = status
-            with open(meta_path, "w") as f:
-                json.dump(metadata, f, indent=4)
+            write_metadata(meta_path, metadata)
+
             QMessageBox.information(scr, "Success", f"Session marked as {'paid' if status else 'unpaid'}.")
             show_sessions_for_club(header.text().split("Sessions for ")[-1])
         except Exception as e:
@@ -424,7 +458,6 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
             except Exception as e:
                 QMessageBox.critical(scr, "Error", f"Could not delete session: {e}")
 
-
     mark_paid_btn.clicked.connect(lambda: update_paid_status(selected_session_label.session_path, True))
     mark_unpaid_btn.clicked.connect(lambda: update_paid_status(selected_session_label.session_path, False))
     delete_session_btn.clicked.connect(lambda: delete_session(selected_session_label.session_path))
@@ -434,7 +467,6 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
     show_club_buttons()
     scr.is_graphical_loader = True
     return scr
-
 
 def update_last_opened_metadata(session_path: str):
         meta_path = os.path.join(session_path, "metadata", "metadata.json")
@@ -446,8 +478,8 @@ def update_last_opened_metadata(session_path: str):
                 metadata = {}
             metadata["last_opened"] = datetime.now().isoformat()
             os.makedirs(os.path.dirname(meta_path), exist_ok=True)
-            with open(meta_path, "w") as f:
-                json.dump(metadata, f, indent=2)
+            write_metadata(meta_path, metadata)
+
         except Exception as e:
             print(f"[ERROR] Could not update last_opened for {session_path}: {e}")
 
@@ -497,28 +529,7 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
 
     graphical_loader_btn = QPushButton("Past Club Sessions")
     layout.addWidget(graphical_loader_btn)
-    info_btn = QPushButton("ℹ️ Notes Format")
-    info_btn.setFixedWidth(150)
-
-    def show_notes_info():
-        QMessageBox.information(
-            screen,
-            "How Notes Determine Status",
-            (
-                "The status of each participant is determined by the content of their Notes column.\n\n"
-                "• Contains 'comped' → Status: Comped\n"
-                "• Contains 'no capacity, and room on the waiting list : register' → Status: Waitlist\n"
-                "• Contains 'refund' → Status: Refund\n"
-                "• Contains 'manually confirmed by' → Status: Manual\n"
-                "• Contains 'not over capacity: register' → Status: Regular\n"
-                "• Anything else → Status: Other\n"
-                "• If it's a PayPal attendee issue, mark them as regular\n"
-                "• If they paid cash, mark them as Manual"
-            )
-        )
-
-    info_btn.clicked.connect(show_notes_info)
-    top_row.insertWidget(top_row.count() - 1, info_btn)  # Just before next_btn
+    
 
     next_btn.clicked.connect(lambda: stack.setCurrentIndex(1))
 
@@ -541,27 +552,9 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
             metadata = {}
         metadata["last_opened"] = datetime.now().isoformat()
         os.makedirs(os.path.dirname(meta_path), exist_ok=True)
-        with open(meta_path, "w") as f:
-            json.dump(metadata, f, indent=2)
+        write_metadata(meta_path, metadata)
 
-    def determine_default_status(notes: str, name: str) -> str:
-        if str(name).strip().lower() in COMPED_NAMES:
-            return "comped"
-
-        n = str(notes).lower()
-        if "comped" in n:
-            return "comped"
-        elif "no capacity, and room on the waiting list : register" in n:
-            return "waitlist"
-        elif "refund" in n:
-            return "refund"
-        elif "manually confirmed by" in n:
-            return "manual"
-        elif "not over capacity: register" in n:
-            return "regular"
-        else:
-            return "other"
-
+    
     def load_paths(paths: List[str]):
         state["csv_paths"] = paths
         dfs, errors, warned_files = [], [], []
@@ -673,7 +666,6 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
 
         load_paths(csv_paths)
 
-
     tree = QTreeWidget()
     tree.setHeaderHidden(True)
     tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -749,6 +741,7 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
 
     select_files_btn.clicked.connect(select_files)
     select_folder_btn.clicked.connect(select_folder)
+    screen.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
 
     return screen
 
@@ -757,20 +750,6 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
     screen = QWidget()
     main_layout = QHBoxLayout(screen)
     state["_wheel_filter"] = state.get("_wheel_filter") or WheelEventFilter()
-    def determine_default_status(notes: str, name: str) -> str:
-        n = str(notes).lower()
-        if "comped" in n:
-            return "comped"
-        elif "no capacity, and room on the waiting list : register" in n:
-            return "waitlist"
-        elif "refund" in n:
-            return "refund"
-        elif "manually confirmed by" in n:
-            return "manual"
-        elif "not over capacity: register" in n:
-            return "regular"
-        else:
-            return "other"
 
     # LEFT SIDE
     left_layout = QVBoxLayout()
@@ -809,25 +788,6 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
     action_row.addWidget(remove_club_btn)
 
     left_layout.addLayout(action_row)
-
-    next_btn = QPushButton("Next")
-    state["_create_next_btn"] = next_btn
-
-    next_btn.setEnabled(False)  # <--- disabled until session is created
-    def try_advance_to_assign_status():
-        if not state.get("session_created") or state.get("session_deleted"):
-            QMessageBox.warning(
-                None,
-                "Session Deleted",
-                "The current session was deleted. Please create or reselect a session before continuing."
-            )
-            return
-        stack.setCurrentIndex(2)
-
-    next_btn.clicked.connect(try_advance_to_assign_status)
-
-    left_layout.addWidget(next_btn)
-    state["_create_session_next_btn"] = next_btn  # Optional: store for later reference
 
     back_btn = QPushButton("Back")
     back_btn.clicked.connect(lambda: stack.setCurrentIndex(0))
@@ -898,24 +858,10 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
         base_session_name = f"Session-{club_name}-{date_str}"
         flagged = False
         flagged_files = []
-        session_folder = BASE_DIR / "AnkleBreakerData" / "sessions"
-        session_path = session_folder / base_session_name
-
-
-        if not os.path.exists(session_path):
-            os.makedirs(session_path)
-            os.makedirs(session_path / "csv")
-            os.makedirs(session_path / "metadata")
-
-            state["current_session"] = str(session_path)
-            state["session_created"] = True
-            state["session_deleted"] = False
 
         state["session_created"] = True
         state["session_deleted"] = False
         
-
-
         session_name = base_session_name
         suffix = 2
         session_path = SESSIONS_DIR / session_name
@@ -965,7 +911,6 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
             session_path = final_session_path
             state["csv_paths"] = new_paths
 
-
         metadata = {
             "club": club_name,
             "date": date_str,
@@ -1010,15 +955,14 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
         if state.get("_upload_folder_btn"):
             state["_upload_folder_btn"].setEnabled(False)
 
-
         # Rebuild assign screen but DO NOT switch to it
+        # Rebuild assign screen AND switch to it
         assign_screen = create_assign_status_screen(stack, state)
         stack.removeWidget(stack.widget(2))
         stack.insertWidget(2, assign_screen)
-        next_btn.setEnabled(True)  # ✅ Enable manual progression after session is created
+        stack.setCurrentIndex(2)
+
         create_btn.setEnabled(False)  # ⛔ Prevent creating again without reset
-
-
 
     create_btn.clicked.connect(show_confirmation_dialog)
 
@@ -1035,9 +979,9 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
 
     def add_club():
         new_club = club_input.text().strip()
-        if not new_club or new_club in state["global_metadata"]["clubs"]:
+        if not new_club or new_club in state["global_metadata"].get("clubs", []):
             return
-        state["global_metadata"]["clubs"].append(new_club)
+        state["global_metadata"].get("clubs", []).append(new_club)
         save_global_metadata(state["global_metadata"])
         club_input.clear()
         state["signals"].clubsChanged.emit()
@@ -1057,8 +1001,8 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
         if confirm != QMessageBox.StandardButton.Yes:
             return
 
-        if selected in state["global_metadata"]["clubs"]:
-            state["global_metadata"]["clubs"].remove(selected)
+        if selected in state["global_metadata"].get("clubs", []):
+            state["global_metadata"].get("clubs", []).remove(selected)
             save_global_metadata(state["global_metadata"])
             state["signals"].clubsChanged.emit()
 
@@ -1070,13 +1014,13 @@ def create_session_creation_screen(stack: QStackedWidget, state) -> QWidget:
 
     return screen
 
-
 #This is the third scrren that the user sees and is the first step after a session is created
 #A user cannot backtrack past this screen
 def create_assign_status_screen(stack, state) -> QWidget:
-
+    # Completely replace scroll content and layout
     screen = QWidget()
     main_layout = QHBoxLayout(screen)
+
     session_csvs = []
     dataframes = []
     state["_wheel_filter"] = state.get("_wheel_filter") or WheelEventFilter()
@@ -1086,30 +1030,118 @@ def create_assign_status_screen(stack, state) -> QWidget:
 
     file_dropdown = QComboBox()
     file_dropdown.installEventFilter(state["_wheel_filter"])
-    left_layout.addWidget(file_dropdown)
 
+    def make_scroll_content():
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        container.setLayout(layout)
+        container.setMinimumWidth(760)
+        container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        return container, layout
+
+    
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
+    scroll_content, scroll_layout = make_scroll_content()
+    scroll.setWidget(scroll_content)
 
-    scroll_content = QWidget()
-    scroll_layout = QVBoxLayout(scroll_content)
-    scroll_content.setLayout(scroll_layout)
+
+
+    info_btn = QPushButton("Notes Legend")
+    info_btn.setFixedWidth(150)
+    def populate_file_dropdown(file_dropdown: QComboBox, state: Dict, session_csvs: List[str], dataframes: List[pd.DataFrame]):
+        current_index = file_dropdown.currentIndex()
+        selected_text = file_dropdown.currentText()
+
+        # Clear + rebuild
+        file_dropdown.blockSignals(True)
+        file_dropdown.clear()
+        file_dropdown.addItem("View All")
+
+        session_csvs[:] = [os.path.basename(p) for p in state["csv_paths"]]
+        dataframes[:] = [state["dataframes"][p] for p in state["csv_paths"]]
+        file_dropdown.addItems(session_csvs)
+
+        # Restore selection
+        if selected_text == "View All":
+            file_dropdown.setCurrentText("View All")
+        elif selected_text in session_csvs:
+            index = session_csvs.index(selected_text) + 1
+            file_dropdown.setCurrentIndex(index)
+        else:
+            file_dropdown.setCurrentIndex(0)
+
+        file_dropdown.blockSignals(False)
+
+    def show_notes_info():
+        QMessageBox.information(
+            screen,
+            "How Notes Determine Status",
+            (
+                "The status of each participant is determined by the content of their Notes column.\n\n"
+                "• Contains 'comped' → Status: Comped\n"
+                "• Contains 'no capacity, and room on the waiting list : register' → Status: Waitlist\n"
+                "• Contains 'refund' → Status: Refund\n"
+                "• Contains 'manually confirmed by' → Status: Manual\n"
+                "• Contains 'not over capacity: register' → Status: Regular\n"
+                "• Anything else → Status: Other\n"
+                "• If it's a PayPal attendee issue, mark them as regular\n"
+                "• If they paid cash, mark them as Manual"
+            )
+        )
+
+    info_btn.clicked.connect(show_notes_info)
+
+    file_dropdown_row = QHBoxLayout()
+    file_dropdown.setContentsMargins(0, 0, 0, 0)
+
+    file_dropdown.setFixedWidth(600)
+    file_dropdown_row.addWidget(file_dropdown)
+
+    # Add a small fixed spacer
+    spacer = QSpacerItem(10, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
+    file_dropdown_row.addItem(spacer)
+
+    file_dropdown_row.addWidget(info_btn)
+    file_dropdown_row.addStretch()  # Optional: keep this if you want the button to still shift right on window resize
+
+    
 
     # 👇 Key line for consistency
     scroll_content.setMinimumWidth(760)  # or whatever matches View All layout width
+    scroll_content.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+    scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-    scroll.setWidget(scroll_content)
+    file_dropdown_container = QWidget()
+    file_dropdown_container.setLayout(file_dropdown_row)
+    file_dropdown_container.setContentsMargins(0, 0, 0, 0)
+
+    left_layout.addWidget(file_dropdown_container)
     left_layout.addWidget(scroll)
+    left_layout.setSpacing(6)  # optional: reduce vertical spacing
+
     
     next_btn = QPushButton("Next")
     left_layout.addWidget(next_btn)
 
     # Right layout (Other display)
     right_layout = QVBoxLayout()
+    main_layout.setSpacing(12)
+    main_layout.setContentsMargins(8, 8, 8, 8)
+    right_layout.setSpacing(6)
+
+    # Top: Other people
+    right_layout.addWidget(QLabel("People with status 'Other' (by file):"))
     other_display = QTextEdit()
     other_display.setReadOnly(True)
-    right_layout.addWidget(QLabel("People with status 'Other' (by file):"))
     right_layout.addWidget(other_display)
+
+    # Bottom: Status Counts
+    right_layout.addWidget(QLabel("Status Counts by File:"))
+    status_table = QTableWidget()
+    status_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+    right_layout.addWidget(status_table)
+
     # Get current session folder
     current_session = state.get("current_session")
     # Force-rebuild csv_paths using current session folder, not stale copy
@@ -1120,10 +1152,7 @@ def create_assign_status_screen(stack, state) -> QWidget:
 
     csv_dir = os.path.join(session_path, "csv")
 
-    if os.path.exists(csv_dir):
-        for fname in sorted(os.listdir(csv_dir)):
-            if fname.endswith(".csv"):
-                csv_paths.append(os.path.join(csv_dir, fname))
+    csv_paths = get_csv_paths_from_dir(csv_dir)
     state["csv_paths"] = csv_paths
 
     dataframes_dict = state.get("dataframes", {})
@@ -1151,16 +1180,16 @@ def create_assign_status_screen(stack, state) -> QWidget:
             csv_dir = os.path.join(latest_session, "csv") if latest_session else None
 
         if csv_dir and os.path.exists(csv_dir):
-            for fname in sorted(os.listdir(csv_dir)):
-                if fname.endswith(".csv"):
-                    path = os.path.join(csv_dir, fname)
+            for path in get_csv_paths_from_dir(csv_dir):
+                if path.endswith(".csv"):
+                    path = os.path.join(csv_dir, path)
                     df = pd.read_csv(path)
                     if "default_status" in df.columns:
                         if "current_status" not in df.columns:
                             df["current_status"] = df["default_status"]
                         if path not in csv_paths:
                             dataframes.append(df)
-                            session_csvs.append(fname)
+                            session_csvs.append(path)
                             dataframes_dict[path] = df
 
         state["csv_paths"] = csv_paths
@@ -1256,6 +1285,14 @@ def create_assign_status_screen(stack, state) -> QWidget:
             print(f"[DEBUG] Could not flush file before rename: {e}")
 
         # Step 1: Rename file on disk FIRST
+        if os.path.exists(unflagged_path):
+            try:
+                os.remove(unflagged_path)
+                print(f"[CLEANUP] Removed existing file at {unflagged_path}")
+            except Exception as e:
+                print(f"[ERROR] Could not remove existing file at {unflagged_path}: {e}")
+                return
+
         try:
             for attempt in range(3):
                 try:
@@ -1323,8 +1360,8 @@ def create_assign_status_screen(stack, state) -> QWidget:
         # Step 5: Save updated metadata
         try:
             os.makedirs(os.path.dirname(meta_path), exist_ok=True)
-            with open(meta_path, "w") as f:
-                json.dump(metadata, f, indent=2)
+            write_metadata(meta_path, metadata)
+
             print(f"[METADATA] Saved. flagged={metadata.get('flagged')}, flagged_files={metadata.get('flagged_files', [])}")
         except Exception as e:
             print("[ERROR] Failed to write updated metadata:", e)
@@ -1356,17 +1393,74 @@ def create_assign_status_screen(stack, state) -> QWidget:
             counts_per_file[fname] = counts
         state["status_counts"] = counts_per_file
 
+        # Populate status_table
+        statuses = STATUS_LIST
+
+        row_count = len(counts_per_file)
+        status_table.setRowCount(row_count + 1)  # +1 for totals
+        status_table.setColumnCount(len(statuses))
+        status_table.setHorizontalHeaderLabels([s.capitalize() for s in statuses])
+        status_table.setVerticalHeaderLabels(list(counts_per_file.keys()) + ["Total"])
+
+        # Fill data rows
+        totals = {status: 0 for status in statuses}
+        for row_idx, (fname, counts) in enumerate(counts_per_file.items()):
+            for col_idx, status in enumerate(statuses):
+                val = counts.get(status, 0)
+                item = QTableWidgetItem(str(val))
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                status_table.setItem(row_idx, col_idx, item)
+                totals[status] += val
+
+        # Fill totals row
+        for col_idx, status in enumerate(statuses):
+            total_val = totals[status]
+            item = QTableWidgetItem(str(total_val))
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            status_table.setItem(row_count, col_idx, item)
+
+        status_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
     def update_person_buttons(df_index):
-        while scroll_layout.count():
-            child = scroll_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+    # Fully replace scroll content with new widget + layout
+
+        new_scroll_content, new_scroll_layout = make_scroll_content()
+
+        new_scroll_content.setMinimumWidth(760)
+        new_scroll_content.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        scroll.setWidget(new_scroll_content)
+
+
+
+        state["_scroll_content"] = new_scroll_content
+        state["_scroll_layout"] = new_scroll_layout
 
         selected_file = file_dropdown.currentText()
 
+        def make_status_buttons(row, handler_fn):
+            button_row = QHBoxLayout()
+            button_group = QButtonGroup(screen)
+            button_group.setExclusive(True)
+            for status in STATUS_LIST:
+                btn = QPushButton(status.replace("_", " ").capitalize())
+                btn.setFixedWidth(110)
+                btn.setFixedHeight(32)
+                btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+                btn.setCheckable(True)
+                if row["current_status"] == status:
+                    btn.setChecked(True)
+                btn.clicked.connect(handler_fn(status))
+                button_group.addButton(btn)
+                button_row.addWidget(btn)
+            wrapper = QWidget()
+            wrapper.setLayout(button_row)
+            wrapper.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            wrapper.setMinimumWidth(600)
+            return wrapper
+
         if selected_file == "View All":
             grouped_rows = defaultdict(list)
-
             for path in state["csv_paths"]:
                 df = state["dataframes"][path].copy()
                 basename = os.path.basename(path)
@@ -1374,130 +1468,71 @@ def create_assign_status_screen(stack, state) -> QWidget:
                 grouped_rows[basename].extend(df.to_dict("records"))
 
             for fname in sorted(grouped_rows):
-                header_label = QLabel(f"======== {fname} ========")
-                header_label.setStyleSheet("font-size: 16pt; font-weight: bold; padding: 6px;")
-                scroll_layout.addWidget(header_label)
-
+                new_scroll_layout.addWidget(QLabel(f"======== {fname} ========"))
                 for row in grouped_rows[fname]:
                     person_box = QVBoxLayout()
-                    person_label = QLabel(f"{row['Name']} — Default: {row['default_status']}")
-                    person_box.addWidget(person_label)
+                    person_box.addWidget(QLabel(f"{row['Name']} — Default: {row['default_status']}"))
+                    def handler_fn(status, person=row):
+                        def handler():
+                            for path in state["csv_paths"]:
+                                df = state["dataframes"][path]
+                                match = df[(df["Name"] == person["Name"]) & (df["Email"] == person["Email"])]
 
-                    button_row = QHBoxLayout()
-                    statuses = ["regular", "manual", "comped", "refund", "waitlist", "other"]
-                    button_group = QButtonGroup(screen)
-                    button_group.setExclusive(True)
-
-                    for status in statuses:
-                        btn = QPushButton(status.replace("_", " ").capitalize())
-                        btn.setCheckable(True)
-                        btn.setFixedWidth(90)
-                        if row["current_status"] == status:
-                            btn.setChecked(True)
-
-                        def make_handler(status=status, person=row):
-                            def handler():
-                                for path in state["csv_paths"]:
-                                    df = state["dataframes"][path]
-                                    match = df[(df["Name"] == person["Name"]) & (df["Email"] == person["Email"])]
-                                    if not match.empty:
-                                        df.at[match.index[0], "current_status"] = status
-                                        update_other_display()
-                                        update_status_counts()
-                                        update_flag_state_for_file(path, state, stack)
-                                        state["signals"].dataChanged.emit()
-                                        break
-                            return handler
-
-                        btn.clicked.connect(make_handler())
-                        button_group.addButton(btn)
-                        button_row.addWidget(btn)
-
-                    button_row_widget = QWidget()
-                    button_row_widget.setLayout(button_row)
-                    button_row_widget.setMaximumWidth(600)
-                    person_box.addWidget(button_row_widget)
-
+                                if not match.empty:
+                                    df.at[match.index[0], "current_status"] = status
+                                    update_other_display()
+                                    update_status_counts()
+                                    update_flag_state_for_file(path, state, stack)
+                                    state["signals"].dataChanged.emit()
+                                    break
+                        return handler
+                    person_box.addWidget(make_status_buttons(row, handler_fn))
                     wrapper = QFrame()
                     wrapper.setLayout(person_box)
-                    wrapper.setFrameShape(QFrame.Shape.Box)
-                    scroll_layout.addWidget(wrapper)
+                    wrapper.setFrameShape(QFrame.Shape.StyledPanel)  # ✅ add this
+                    wrapper.setContentsMargins(12, 8, 12, 8)
+                    wrapper.setMinimumWidth(760)
+                    wrapper.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+                    new_scroll_layout.addWidget(wrapper)
 
             update_status_counts()
             return
 
-        # Single-file view
+        # --- Single file view ---
         if df_index == 0 or df_index > len(dataframes):
-            print(f"[WARNING] Invalid df_index={df_index} for dataframes list of size {len(dataframes)}")
+            print(f"[WARNING] Invalid df_index={df_index}")
             return
 
         try:
             path = state["csv_paths"][df_index - 1]
             df = state["dataframes"][path]
-        except IndexError:
-            print(f"[ERROR] df_index={df_index} is out of range for csv_paths: {state['csv_paths']}")
+        except Exception as e:
+            print(f"[ERROR] {e}")
             return
-        except KeyError:
-            print(f"[ERROR] No dataframe found for path: {path}")
-            return
-
 
         for idx, row in df.iterrows():
             person_box = QVBoxLayout()
-            person_label = QLabel(f"{row['Name']} — Default: {row['default_status']}")
-            person_box.addWidget(person_label)
-
-            button_row = QHBoxLayout()
-            statuses = ["regular", "manual", "comped", "refund", "waitlist", "other"]
-            button_group = QButtonGroup(screen)
-            button_group.setExclusive(True)
-
-            for status in statuses:
-                btn = QPushButton(status.capitalize())
-                btn.setCheckable(True)
-                if row["current_status"] == status:
-                    btn.setChecked(True)
-
-                def make_click_handler(status=status, row_idx=idx, df=df):
-                    def handler():
-                        selected_file = file_dropdown.currentText()
-                        
-                        # Try to resolve the correct file path from state["csv_paths"]
-                        matching_paths = [p for p in state["csv_paths"] if os.path.basename(p) == selected_file]
-                        if not matching_paths:
-                            print("[ERROR] Could not find file path for:", selected_file)
-                            return
-                        path = matching_paths[0]
-
-                        # Update status in memory
-                        df.at[row_idx, "current_status"] = status
-                        df.to_csv(path, index=False)
-
-
-                        print(f"[CLICK] Changed status for {df.at[row_idx, 'Name']} in {selected_file} to {status}")
-                        print(f"[CHECK] Remaining 'other' statuses in file: {(df['current_status'] == 'other').sum()}")
-
-                        update_other_display()
-                        update_status_counts()
-                        update_flag_state_for_file(path, state, stack)
-                        state["signals"].dataChanged.emit()
-
-                    return handler
-
-                btn.clicked.connect(make_click_handler())
-                button_group.addButton(btn)
-                button_row.addWidget(btn)
-
-            # Wrap button row just like in "View All"
-            button_row_widget = QWidget()
-            button_row_widget.setLayout(button_row)
-            button_row_widget.setMaximumWidth(600)  # Match View All
-            person_box.addWidget(button_row_widget)
-
+            person_box.addWidget(QLabel(f"{row['Name']} — Default: {row['default_status']}"))
+            def handler_fn(status, row_idx=idx, df=df):
+                def handler():
+                    df.at[row_idx, "current_status"] = status
+                    df.to_csv(path, index=False)
+                    update_other_display()
+                    update_status_counts()
+                    update_flag_state_for_file(path, state, stack)
+                    state["signals"].dataChanged.emit()
+                return handler
+            person_box.addWidget(make_status_buttons(row, handler_fn))
             wrapper = QFrame()
             wrapper.setLayout(person_box)
-            wrapper.setFrameShape(QFrame.Shape.Box)
-            scroll_layout.addWidget(wrapper)
+            wrapper.setFrameShape(QFrame.Shape.StyledPanel)
+            wrapper.setContentsMargins(12, 8, 12, 8)
+            wrapper.setMinimumWidth(760)
+            wrapper.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            new_scroll_layout.addWidget(wrapper)
+            new_scroll_layout.addSpacing(4)  # Or 8 for more room
+
 
         update_status_counts()
 
@@ -1547,35 +1582,27 @@ def create_assign_status_screen(stack, state) -> QWidget:
         stack.setCurrentIndex(3)
 
     next_btn.clicked.connect(go_to_fee_schedule)
-    main_layout.addLayout(left_layout, stretch=3)
-    main_layout.addLayout(right_layout, stretch=1)
+    left_container = QWidget()
+    left_container.setLayout(left_layout)
+    left_container.setMinimumWidth(800)
+    left_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+    right_container = QWidget()
+    right_container.setLayout(right_layout)
+
+    main_layout.addWidget(left_container, stretch=1)   # Left is smaller
+    main_layout.addWidget(right_container, stretch=2)  # Right expands more
+
     def refresh_file_dropdown():
-        current_index = file_dropdown.currentIndex()
-        file_dropdown.clear()
-        file_dropdown.addItem("View All")
-        session_csvs[:] = [os.path.basename(p) for p in state["csv_paths"]]
-        dataframes[:] = [state["dataframes"][p] for p in state["csv_paths"]]
-        file_dropdown.addItems(session_csvs)
-        selected_text = file_dropdown.itemText(current_index)
-        if selected_text == "View All":
-            file_dropdown.setCurrentText("View All")
-            update_person_buttons(0)
-        elif selected_text in session_csvs:
-            index = session_csvs.index(selected_text) + 1  # +1 for View All offset
-            file_dropdown.setCurrentIndex(index)
-            update_person_buttons(index)
-        else:
-            print(f"[WARNING] Unexpected dropdown text: {selected_text}")
-            update_person_buttons(0)
+        populate_file_dropdown(file_dropdown, state, session_csvs, dataframes)
 
         update_other_display()
-        # Update label after potential unflagging
-        # Force dropdown reset and rerender for View All consistency
+
+        # Force rerender for View All mode
         current_text = file_dropdown.currentText()
         if current_text == "View All":
             file_dropdown.setCurrentText("View All")
             update_person_buttons(0)
-
 
     screen.refresh_file_dropdown = refresh_file_dropdown
     next_btn.setEnabled(False)  # default state until verified
@@ -1593,11 +1620,8 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
     fee_inputs: Dict[str, QLineEdit] = {}
     state["fee_schedule"] = {}
 
-
-
     validator = QDoubleValidator(0.0, 10000.0, 2)
     validator.setNotation(QDoubleValidator.Notation.StandardNotation)
-
 
     csv_paths = state.get("csv_paths", [])
     saved_prices = {}
@@ -1620,8 +1644,6 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
                 QMessageBox.warning(screen, "Invalid Fee", f"Invalid fee for {fname}. Please enter a non-negative number.")
                 return
 
-
-
         # Update metadata again before going forward
         save_fee_schedule()
 
@@ -1629,7 +1651,6 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
         stack.removeWidget(stack.widget(4))
         stack.insertWidget(4, summary_screen)
         stack.setCurrentIndex(4)
-
 
     session_dir = state.get("current_session")
     if session_dir:
@@ -1657,8 +1678,6 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
                 all_valid = False
                 break
         next_btn.setEnabled(all_valid)
-
-
 
     if not csv_paths:
         layout.addWidget(QLabel("⚠️ No CSV files found for this session."))
@@ -1688,7 +1707,6 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
 
     # --- Logic to enable/disable Next button ---
 
-
     def save_fee_schedule():
         if not session_dir:
             QMessageBox.warning(screen, "No Session", "No active session to save fees to.")
@@ -1706,7 +1724,6 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
         except Exception as e:
             QMessageBox.critical(screen, "Error", f"Could not read metadata:\n{e}")
             return
-
 
         prices = {}
         for fname, inp in fee_inputs.items():
@@ -1777,7 +1794,6 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
         save_fee_schedule()
         update_next_button_state()
 
-
     assign_all_btn = QPushButton("Assign All")
     assign_all_btn.clicked.connect(assign_all)
     layout.addWidget(assign_all_btn)
@@ -1814,8 +1830,11 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
             fee_inputs[fname] = inp
         update_next_button_state()
 
-    screen.refresh_file_dropdown = refresh_file_dropdown
+    layout.addLayout(nav_row)
+    layout.addStretch()  # optional but nice
 
+    screen.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+    screen.refresh_file_dropdown = refresh_file_dropdown
     return screen
 
 def create_payment_summary_screen(stack, state) -> QWidget:
@@ -1861,11 +1880,13 @@ def create_payment_summary_screen(stack, state) -> QWidget:
                     pass
 
         # Status summary table
-        statuses = ["regular", "manual", "comped", "refund", "waitlist", "other"]
+        statuses = STATUS_LIST
         status_counts = state.get("status_counts", {})
         filenames = list(status_counts.keys())
 
         status_table = QTableWidget()
+        status_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
         status_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         status_table.setRowCount(len(filenames) + 1)
         status_table.setColumnCount(len(statuses))
@@ -1892,6 +1913,7 @@ def create_payment_summary_screen(stack, state) -> QWidget:
         summary_container.addWidget(QLabel("Financial Summary"))
         columns = ["Gross", "TrackitHub", "PayPal", club_name]
         financial_table = QTableWidget()
+        financial_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         financial_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         financial_table.setColumnCount(len(columns))
         financial_table.setRowCount(len(filenames) + 1)
@@ -1946,14 +1968,18 @@ def create_payment_summary_screen(stack, state) -> QWidget:
             with open(meta_path, "r") as f:
                 metadata = json.load(f)
             metadata["paid"] = status
-            with open(meta_path, "w") as f:
-                json.dump(metadata, f, indent=4)
+            write_metadata(meta_path, metadata)
             QMessageBox.information(screen, "Updated", f"Session marked as {'paid' if status else 'unpaid'}.")
             state["signals"].sessionsChanged.emit()
         except Exception as e:
             QMessageBox.critical(screen, "Error", f"Failed to update paid status:\n{e}")
 
-    paid_btn.clicked.connect(lambda: update_paid_status(True))
+    def on_mark_paid():
+        update_paid_status(True)
+        state["tabs"].setCurrentIndex(2)  # 0=Program, 1=Current Session Files, 2=All Sessions
+
+    paid_btn.clicked.connect(on_mark_paid)
+
     unpaid_btn.clicked.connect(lambda: update_paid_status(False))
 
     def refresh_summary():
@@ -1987,8 +2013,6 @@ def create_program_flow_tab(state: Dict, stack:QStackedWidget) -> QStackedWidget
     stack.addWidget(QWidget())  # Placeholder for payment summary     # 4
 
     return stack
-
-
 
 def create_all_sessions_tab(state: Dict) -> QWidget:
     class AllSessionsTabSignals(QObject):
@@ -2029,6 +2053,7 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
     tree.setHeaderHidden(True)
     tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
     layout.addWidget(tree)
+    tree.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     # Edit UI
     edit_box = QGroupBox("Edit AnkleBreaker Notes")
@@ -2050,21 +2075,7 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
     selected_file = None
     df = None
 
-    def determine_default_status(notes: str, name: str) -> str:
-        n = str(notes).lower()
-        if "comped" in n:
-            return "comped"
-        elif "no capacity, and room on the waiting list : register" in n:
-            return "waitlist"
-        elif "refund" in n:
-            return "refund"
-        elif "manually confirmed by" in n:
-            return "manual"
-        elif "not over capacity: register" in n:
-            return "regular"
-        else:
-            return "other"
-
+    
     def refresh_all_sessions():
         tree.clear()
         sessions_path = SESSIONS_DIR
@@ -2192,7 +2203,6 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
         df["AnkleBreaker notes"] = df["AnkleBreaker notes"].astype(str)
         df.loc[df["Name"] == name, "AnkleBreaker notes"] = abnote_input.text()
 
-
         df["default_status"] = df.apply(lambda row: determine_default_status(row["Notes"], row["Name"]), axis=1)
 
         session_path = os.path.join(SESSIONS_DIR, selected_session)
@@ -2222,7 +2232,6 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
 
     reset_btn.clicked.connect(full_refresh_filters)
 
-
     tree.itemClicked.connect(on_tree_item_selected)
     tree.currentItemChanged.connect(on_tree_item_selected)
     tree.itemDoubleClicked.connect(on_tree_item_double_clicked)
@@ -2233,15 +2242,15 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
     refresh_all_sessions()
 
     scr.refresh = refresh_all_sessions
-    return scr
+    scr.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
+    return scr
 
 def create_current_session_files_tab(state: Dict) -> QWidget:
     scr = QWidget()
     scr_layout = QVBoxLayout(scr)
     state["_wheel_filter"] = state.get("_wheel_filter") or WheelEventFilter()
     state.setdefault("fee_schedule", {})
-
 
     header = QLabel("Files in Current Session")
     header.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -2253,6 +2262,7 @@ def create_current_session_files_tab(state: Dict) -> QWidget:
 
     table = QTableWidget()
     scr_layout.addWidget(table)
+    table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     def load_csv_to_table(path: str):
         try:
@@ -2392,8 +2402,8 @@ def create_current_session_files_tab(state: Dict) -> QWidget:
     state["signals"].sessionsChanged.connect(refresh)
 
     scr.refresh = refresh
+    scr.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
     return scr
-
 
 def create_any_file_viewer_tab(state: Dict) -> QWidget:
     scr = QWidget()
@@ -2423,6 +2433,7 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
 
     table = QTableWidget()
     layout.addWidget(table)
+    table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     club_session_file_map = {}
 
@@ -2604,8 +2615,6 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
         if all_signals:
             all_signals.fileDoubleClicked.connect(load_file_from_path)
 
-
-
     # Hook up signals
     club_dropdown.currentTextChanged.connect(on_club_change)
     session_dropdown.currentTextChanged.connect(on_session_change)
@@ -2621,11 +2630,9 @@ def create_any_file_viewer_tab(state: Dict) -> QWidget:
     refresh_dropdowns()
     connect_file_viewer_signals()
 
-
+    scr.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     return scr
-
-
 
 # ---------------------------------------------------------------------
 # Main window builder
@@ -2634,24 +2641,7 @@ def load_session_from_folder(session_dir: str, stack: QStackedWidget, state: Dic
     metadata_path = os.path.join(session_dir, "metadata", "metadata.json")
     csv_dir = os.path.join(session_dir, "csv")
 
-    def determine_default_status(notes: str, name: str) -> str:
-        if str(name).strip().lower() in COMPED_NAMES:
-            return "comped"
-
-        n = str(notes).lower()
-        if "comped" in n:
-            return "comped"
-        elif "no capacity, and room on the waiting list : register" in n:
-            return "waitlist"
-        elif "refund" in n:
-            return "refund"
-        elif "manually confirmed by" in n:
-            return "manual"
-        elif "not over capacity: register" in n:
-            return "regular"
-        else:
-            return "other"
-
+    
     if not os.path.exists(metadata_path) or not os.path.isdir(csv_dir):
         QMessageBox.warning(parent_widget, "Invalid Session", "Selected folder does not appear to be a valid session.")
         return
@@ -2672,9 +2662,9 @@ def load_session_from_folder(session_dir: str, stack: QStackedWidget, state: Dic
         state["status_counts"] = {}
 
         fee_schedule = metadata.get("fees", {})
-        state["fee_schedule"] = {fname: int(val) for fname, val in fee_schedule.items() if str(val).isdigit()}
+        state["fee_schedule"] = {fname: float(val) for fname, val in fee_schedule.items() if isinstance(val, (int, float)) or str(val).replace(".", "", 1).isdigit()}
 
-        filenames = sorted(f for f in os.listdir(csv_dir) if f.endswith(".csv"))
+        filenames = [os.path.basename(p) for p in get_csv_paths_from_dir(csv_dir)]
 
         for fname in filenames:
             path = os.path.join(csv_dir, fname)
@@ -2686,7 +2676,6 @@ def load_session_from_folder(session_dir: str, stack: QStackedWidget, state: Dic
                 expected_headers = ["Name", "Email", "Phone Number", "Status", "Registration Time", "Notes"]
                 if list(df.columns[:6]) != expected_headers:
                     df.columns = expected_headers
-
 
                 df["default_status"] = df.apply(lambda row: determine_default_status(row["Notes"], row["Name"]), axis=1)
                 if "current_status" not in df.columns:
@@ -2711,8 +2700,6 @@ def load_session_from_folder(session_dir: str, stack: QStackedWidget, state: Dic
 
     except Exception as e:
         QMessageBox.critical(parent_widget, "Load Failed", f"Could not load session:\n{e}")
-
-
 
 def reset_session(stack: QStackedWidget, state: Dict, parent: QWidget):
     reply = QMessageBox.question(
@@ -2787,48 +2774,64 @@ def reset_session(stack: QStackedWidget, state: Dict, parent: QWidget):
     # Notify the user
     QMessageBox.information(parent, "Session Reset", "The session has been reset.")
 
-
 def create_main_window() -> QWidget:
     container = QWidget()
-    layout = QVBoxLayout(container)
+    main_layout = QVBoxLayout(container)
+    container.setContentsMargins(6, 6, 6, 6)      # ⬅️ Adds margin around the outer container
+    main_layout.setContentsMargins(6, 6, 6, 6)    # ⬅️ Adds margin inside the layout itself
+    main_layout.setSpacing(8)                         # ⬅️ Adds space between elements like top_bar and stack
+
+    main_layout.setSpacing(0)
 
     state: Dict = {}
-    state["signals"] = AppSignals()
+    state["signals"] = SignalBus()
     state["global_metadata"] = load_global_metadata()
     state["_refresh_crud_banners"] = []
     state["current_session"] = None
     state["session_created"] = False
     state["session_deleted"] = False
 
-    # --- Top Button Bar (AnkleBar + Past Club Sessions) ---
+    # --- Top Button Bar (AnkleBar + Past Club Sessions + Session Label) ---
     top_bar = QHBoxLayout()
+    top_bar.setContentsMargins(0, 0, 0, 6)
 
-    shared_button_style = """
-        QPushButton {
-            background-color: #5b7db1;
-            color: white;
-            font-weight: bold;
-            padding: 4px 12px;
-            border-radius: 6px;
-        }
-        QPushButton::menu-indicator {
-            image: none;
-        }
-        QPushButton:hover {
-            background-color: #486a9c;
-        }
-    """
-
-    # --- AnkleBar Button with Dropdown ---
-    anklebar_btn = QPushButton("📁 AnkleBar ▾")
-    anklebar_btn.setFixedHeight(32)
-    anklebar_btn.setStyleSheet(shared_button_style)
-
+    anklebar_btn = QPushButton("📁 AnkleBar")
+    anklebar_btn.setFixedHeight(36)
+    anklebar_btn.setProperty("class", "menu-button")
     anklebar_menu = QMenu()
     anklebar_btn.setMenu(anklebar_menu)
+    anklebar_btn.style().unpolish(anklebar_btn)
+    anklebar_btn.style().polish(anklebar_btn)
 
-    # ✅ 1. Load Session
-    load_folder_action = QAction("Load Session", container)
+    past_sessions_btn = QPushButton("📂 Past Club Sessions")
+    past_sessions_btn.setFixedHeight(36)
+    past_sessions_btn.setProperty("class", "menu-button")
+    past_sessions_btn.style().unpolish(past_sessions_btn)
+    past_sessions_btn.style().polish(past_sessions_btn)
+
+    session_label = QLabel()
+    session_label.setObjectName("sessionStatusLabel")
+    session_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+    top_bar.addWidget(anklebar_btn)
+    top_bar.addSpacing(12)  # optional small gap
+    top_bar.addWidget(past_sessions_btn)
+
+    top_bar.addWidget(past_sessions_btn)
+    top_bar.addWidget(session_label)
+    top_bar.addStretch()
+
+    main_layout.addLayout(top_bar)  # 🧷 Add to the same layout as the tabs
+
+    def refresh_session_label():
+        path = state.get("current_session")
+        session_label.setText(f"Current Session: {os.path.basename(path)}" if path else "")
+
+    state["refresh_current_session_label"] = refresh_session_label
+    state["_refresh_crud_banners"].append(refresh_session_label)
+    refresh_session_label()
+
+    # ---------------- Menu Actions ----------------
     def open_folder_dialog():
         start_dir = str(SESSIONS_DIR) if os.path.exists(SESSIONS_DIR) else str(BASE_DIR)
         folder = QFileDialog.getExistingDirectory(container, "Select Session Folder", start_dir)
@@ -2836,29 +2839,20 @@ def create_main_window() -> QWidget:
             return
         folder_name = os.path.basename(folder)
         reply = QMessageBox.question(
-            container,
-            "Confirm Load",
+            container, "Confirm Load",
             f"You are about to load session:\n\n📁 {folder_name}\n\nContinue?",
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
         )
         if reply == QMessageBox.StandardButton.Ok:
             load_session_from_folder(folder, state["stack"], state, container)
-        else:
-            open_folder_dialog()
 
-    load_folder_action.triggered.connect(open_folder_dialog)
-    anklebar_menu.addAction(load_folder_action)
+    def reset_session_wrapper():
+        reset_session(state["stack"], state, container)
 
-    # ✅ 2. Reset Session
-    reset_session_action = QAction("Reset Session", container)
-    reset_session_action.triggered.connect(lambda: reset_session(state["stack"], state, container))
-    anklebar_menu.addAction(reset_session_action)
-    # First: define the function
     def launch_graphical_loader():
         state["previous_screen_index"] = state["stack"].currentIndex()
         state["previous_tab_index"] = state["tabs"].currentIndex()
         state["previous_program_screen"] = state["stack"].currentIndex()
-
         graphical_screen = create_graphical_loader_screen(state["stack"], state)
         if state["stack"].indexOf(graphical_screen) == -1:
             state["stack"].addWidget(graphical_screen)
@@ -2866,34 +2860,40 @@ def create_main_window() -> QWidget:
         state["stack"].setCurrentWidget(graphical_screen)
         past_sessions_btn.setEnabled(False)
 
-    # Then: attach to menu item
-    past_sessions_action = QAction("Past Club Sessions", container)
-    past_sessions_action.triggered.connect(launch_graphical_loader)
-    anklebar_menu.addAction(past_sessions_action)
-
-    # Then: define the button
-    past_sessions_btn = QPushButton("📂 Past Club Sessions")
-    past_sessions_btn.setFixedHeight(32)
-    past_sessions_btn.setStyleSheet(shared_button_style)
-    past_sessions_btn.clicked.connect(launch_graphical_loader)
-
-    # ✅ 4. Set Base Path
-    choose_base_path_action = QAction("Set Data Folder Location", container)
     def choose_base_path_dialog():
-        new_path = QFileDialog.getExistingDirectory(container, "Choose AnkleBreaker Data Folder")
-        if not new_path:
+        selected_dir = QFileDialog.getExistingDirectory(container, "Choose Where to Place AnkleBreakerData Folder")
+        if not selected_dir:
             return
 
-        config["base_path"] = new_path
-        save_config(config)
+        try:
+            new_base = Path(selected_dir) / "AnkleBreakerData"
+            sessions_dir = new_base / "sessions"
+            metadata_path = new_base / "metadata.json"
 
-        QMessageBox.information(container, "Restart Required", "Data folder location updated.\n\nPlease restart the application for changes to take effect.")
+            # Create folders
+            new_base.mkdir(parents=True, exist_ok=True)
+            sessions_dir.mkdir(parents=True, exist_ok=True)
 
-    choose_base_path_action.triggered.connect(choose_base_path_dialog)
-    anklebar_menu.addAction(choose_base_path_action)
+            # Create default metadata.json if missing
+            if not metadata_path.exists():
+                with open(metadata_path, "w") as f:
+                    json.dump({"clubs": DEFAULT_CLUBS}, f, indent=4)
 
-    # ✅ 5. Delete Session
-    delete_session_action = QAction("Delete Session", container)
+            # Update config and notify
+            settings.setValue("base_path", str(new_base))
+            QMessageBox.information(
+                container,
+                "Restart Required",
+                f"✅ Created AnkleBreakerData at:\n{new_base}\n\nPlease restart the app to apply changes."
+            )
+
+        except Exception as e:
+            QMessageBox.critical(
+                container,
+                "Folder Creation Failed",
+                f"❌ Could not create required folders at:\n{new_base}\n\nError:\n{e}"
+            )
+
     def delete_session_dialog():
         start_dir = str(SESSIONS_DIR) if os.path.exists(SESSIONS_DIR) else str(BASE_DIR)
         folder = QFileDialog.getExistingDirectory(container, "Select Session Folder to Delete", start_dir)
@@ -2901,8 +2901,7 @@ def create_main_window() -> QWidget:
             return
         session_name = os.path.basename(folder)
         reply = QMessageBox.question(
-            container,
-            "Confirm Delete",
+            container, "Confirm Delete",
             f"Are you sure you want to permanently delete session:\n\n📁 {session_name}?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
@@ -2917,7 +2916,7 @@ def create_main_window() -> QWidget:
                     state["fee_schedule"] = {}
                 if state.get("_welcome_next_btn"):
                     state["_welcome_next_btn"].setEnabled(False)
-                if "refresh_current_session_label" in state and callable(state["refresh_current_session_label"]):
+                if callable(state.get("refresh_current_session_label")):
                     state["refresh_current_session_label"]()
                 for fn in state.get("_refresh_crud_banners", []):
                     fn()
@@ -2927,52 +2926,31 @@ def create_main_window() -> QWidget:
             except Exception as e:
                 QMessageBox.critical(container, "Delete Failed", f"Could not delete session:\n\n{e}")
 
-    delete_session_action.triggered.connect(delete_session_dialog)
-    anklebar_menu.addAction(delete_session_action)
+    anklebar_menu.addAction(QAction("Load Session", container, triggered=open_folder_dialog))
+    anklebar_menu.addAction(QAction("Reset Session", container, triggered=reset_session_wrapper))
+    anklebar_menu.addAction(QAction("Set Data Folder Location", container, triggered=choose_base_path_dialog))
+    anklebar_menu.addAction(QAction("Delete Session", container, triggered=delete_session_dialog))
 
-    # --- Past Club Sessions Button ---
-    past_sessions_btn = QPushButton("📂 Past Club Sessions")
-    past_sessions_btn.setFixedHeight(32)
-    past_sessions_btn.setStyleSheet(shared_button_style)
-    
     past_sessions_btn.clicked.connect(launch_graphical_loader)
 
-    top_bar.addWidget(anklebar_btn)
-    top_bar.addWidget(past_sessions_btn)
-    top_bar.addStretch()
-    layout.addLayout(top_bar)
-
-    # --- Session Banner ---
-    session_label = QLabel()
-    session_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    layout.addWidget(session_label)
-
-    def refresh_session_label():
-        path = state.get("current_session")
-        session_label.setText(
-            f"Current Session: {os.path.basename(path)}"
-            if path else "No current session"
-        )
-    state["refresh_current_session_label"] = refresh_session_label
-    state["_refresh_crud_banners"].append(refresh_session_label)
-    refresh_session_label()
-
-    # --- Stack + Tabs ---
-    stack_wrapper = QWidget()
-    stack_layout = QVBoxLayout(stack_wrapper)
-    stack_layout.setContentsMargins(0, 0, 0, 0)
+    # ---------------- Stack + Tabs ----------------
+    stack_tabs_container = QWidget()
+    stack_tabs_layout = QVBoxLayout(stack_tabs_container)
+    stack_tabs_layout.setContentsMargins(0, 0, 0, 0)
+    stack_tabs_layout.setSpacing(0)
 
     state["stack"] = QStackedWidget()
-    stack_layout.addWidget(state["stack"])
+    state["stack"].setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+    stack_tabs_layout.addWidget(state["stack"], stretch=0)  # no vertical dominance
 
     tabs = QTabWidget()
-    layout.addWidget(stack_wrapper)
-    layout.addWidget(tabs)
+    stack_tabs_layout.addWidget(tabs, stretch=1)  # tabs should grow
+
+    main_layout.addWidget(stack_tabs_container)
 
     state["tabs"] = tabs
 
-    program_tab = create_program_flow_tab(state, state["stack"])
-    tabs.addTab(program_tab, "Program")
+    tabs.addTab(create_program_flow_tab(state, state["stack"]), "Program")
     tabs.addTab(create_current_session_files_tab(state), "Current Session Files")
     tabs.addTab(create_all_sessions_tab(state), "All Sessions")
     tabs.addTab(create_any_file_viewer_tab(state), "Browse All Files")
@@ -2984,29 +2962,28 @@ def create_main_window() -> QWidget:
 
     tabs.currentChanged.connect(refresh_dynamic_tab)
 
-    # --- Disable Past Club Sessions button while on that screen ---
     def track_graphical_loader_change(index):
         current_widget = state["stack"].widget(index)
-        graphical_loader_screen = None
         for i in range(state["stack"].count()):
             widget = state["stack"].widget(i)
             if hasattr(widget, "is_graphical_loader") and widget.is_graphical_loader:
-                graphical_loader_screen = widget
+                past_sessions_btn.setEnabled(current_widget != widget)
                 break
-        past_sessions_btn.setEnabled(current_widget != graphical_loader_screen)
 
     state["stack"].currentChanged.connect(track_graphical_loader_change)
 
-    return container
+    container.setMinimumSize(1000, 700)
+    container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
+    return container
 
 # ---------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------
 
 def main() -> None:
+    
     app = QApplication(sys.argv)
-
     # ✅ Load stylesheet in a PyInstaller-safe way
     if getattr(sys, 'frozen', False):  # Running as .exe from PyInstaller
         base_path = sys._MEIPASS
@@ -3036,11 +3013,9 @@ def main() -> None:
         tab_widget.currentChanged.connect(refresh_dynamic_tab)
 
     main_widget.setWindowTitle("AnkleBreaker")
-    main_widget.resize(800, 600)
+    main_widget.resize(1475, 800)
     main_widget.show()
     sys.exit(app.exec())
-
-
 
 if __name__ == "__main__":
     main()
