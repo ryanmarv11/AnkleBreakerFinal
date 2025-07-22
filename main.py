@@ -2795,16 +2795,24 @@ def create_main_window() -> QWidget:
     top_bar = QHBoxLayout()
     top_bar.setContentsMargins(0, 0, 0, 6)
 
-    anklebar_btn = QPushButton("📁 AnkleBar")
-    anklebar_btn.setFixedHeight(36)
+    anklebar_btn = QToolButton()
+    anklebar_btn.setText("📁 AnkleBar ▼")
+    anklebar_btn.setMinimumHeight(40)
+
+
     anklebar_btn.setProperty("class", "menu-button")
+
     anklebar_menu = QMenu()
     anklebar_btn.setMenu(anklebar_menu)
+
+    anklebar_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+    anklebar_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+
     anklebar_btn.style().unpolish(anklebar_btn)
     anklebar_btn.style().polish(anklebar_btn)
 
     past_sessions_btn = QPushButton("📂 Past Club Sessions")
-    past_sessions_btn.setFixedHeight(36)
+    past_sessions_btn.setMinimumHeight(40)
     past_sessions_btn.setProperty("class", "menu-button")
     past_sessions_btn.style().unpolish(past_sessions_btn)
     past_sessions_btn.style().polish(past_sessions_btn)

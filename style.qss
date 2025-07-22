@@ -1,4 +1,3 @@
-
 QWidget {
     font-family: "Segoe UI", sans-serif;
     font-size: 18px;
@@ -18,11 +17,9 @@ QComboBox {
     border-radius: 4px;
     padding: 2px 30px 2px 6px; 
     font-size: 18px;
-    min-height: 32px;
-    margin-top: -4px;
-    padding-top: 2px;  
-    margin-top: -2px; 
     min-height: 36px;
+    margin-top: -2px;
+    padding-top: 2px;  
 }
 
 QLineEdit, QTextEdit, QDateEdit {
@@ -48,14 +45,14 @@ QHeaderView::section {
     font-size: 17px;
 }
 
-
 QComboBox::drop-down {
     subcontrol-origin: padding;
     subcontrol-position: top right;
     width: 20px;
     border-left: 1px solid #cccccc;
-    margin-top: 2px;  /* ✅ Arrow container moves slightly up */
-    margin-right: 4px; /* ✅ Arrow nudges left */
+    margin-top: 2px;  
+    margin-right: 4px; 
+    top:-2px;
 }
 
 QComboBox::down-arrow {
@@ -70,7 +67,6 @@ QTreeWidget {
     padding: 6px;
     font-size: 17px;
 }
-
 
 QPushButton {
     background-color: #4a90e2;
@@ -102,7 +98,7 @@ QPushButton:disabled {
     font-size: 18px;
 }
 
-
+/* FOLDER BUTTONS */
 QToolButton[class="folder-button"] {
     background-color: #ffda75;
     border: 2px solid #d1a842;
@@ -123,7 +119,6 @@ QToolButton[class="folder-button"]:pressed {
     border-color: #a0761a;
 }
 
-
 QToolButton:disabled {
     background-color: #2e6e3e;
     color: white;
@@ -131,33 +126,49 @@ QToolButton:disabled {
     font-size: 18px;
 }
 
-
 QToolButton#navBackButton {
     font-size: 16px;
     padding: 4px;
 }
 
-
+/* LABELS */
 QLabel#fileHeaderLabel {
     font-size: 16pt;
     font-weight: bold;
     padding: 6px;
 }
 
-QPushButton[class="menu-button"] {
-    background-color: #5b7db1;
-    color: white;
-    font-weight: bold;
-    padding: 6px 14px;
-    border-radius: 6px;
-}
-
-QPushButton[class="menu-button"]:hover {
-    background-color: #486a9c;
-}
-
 QLabel#sessionStatusLabel {
     font-style: italic;
     padding-left: 8px;
     color: #333;
+}
+
+/* --- MENU BUTTONS (AnkleBar + Past Club Sessions) --- */
+QPushButton[class="menu-button"], QToolButton[class="menu-button"] {
+    background-color: #487ec1;
+    color: white;
+    border: 2px solid #264a73;
+    border-radius: 8px;
+    font-weight: bold;
+    padding: 8px 16px;
+    min-height: 36px;
+    font-size: 18px;
+}
+
+QPushButton[class="menu-button"]:hover, QToolButton[class="menu-button"]:hover {
+    background-color: #6699cc;
+}
+
+QPushButton[class="menu-button"]:pressed, QToolButton[class="menu-button"]:pressed {
+    background-color: #3d6ca8;
+}
+
+QToolButton::menu-indicator {
+    subcontrol-origin: content;
+    subcontrol-position: right center;
+    padding-left: 6px;
+    image: url(:/qt-project.org/styles/commonstyle/images/arrowdown.png);
+    width: 12px;
+    height: 12px;
 }
