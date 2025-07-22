@@ -218,9 +218,9 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
     back_btn = QToolButton()
     back_btn.setText("← Back")
     back_btn.setVisible(False)
-    btn.setProperty("class", "folder-button")
-    btn.style().unpolish(btn)
-    btn.style().polish(btn)
+    back_btn.setProperty("class", "folder-button")
+    back_btn.style().unpolish(back_btn)
+    back_btn.style().polish(back_btn)
 
     # Header and Back button in same row
     header = QLabel("Select a Club")
