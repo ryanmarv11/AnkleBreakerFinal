@@ -14,7 +14,7 @@ from typing import Dict, List
 import pandas as pd
 
 # PyQt6 imports
-from PyQt6.QtCore import QDate, QObject, QEvent, Qt, QSize, pyqtSignal, QSettings
+from PyQt6.QtCore import QDate, QObject, QEvent, Qt, QSize, pyqtSignal, QSettings, QCoreApplication
 from PyQt6.QtGui import QAction, QIcon, QDoubleValidator, QColor, QFont
 from PyQt6.QtWidgets import (
     QApplication,
@@ -31,9 +31,11 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QLayout,
     QMenu,
     QMessageBox,
-    QPushButton,    
+    QPushButton,  
+    QRadioButton,  
     QScrollArea,
     QSizePolicy,
     QSpacerItem,
@@ -82,7 +84,6 @@ COMPED_NAMES = {
     "cole hessler",
     "meyer knapp",
     "tina knapp",
-    "linda kypp",
     "anderson leclair",
     "the ghost"
 }
@@ -200,9 +201,6 @@ def create_graphical_loader_screen(stack: QStackedWidget, state: Dict) -> QWidge
     back_to_previous_btn.setText("← Previous Screen")
     back_to_previous_btn.setObjectName("navBackButton")
     back_to_previous_btn.clicked.connect(lambda: go_back_to_previous(state))
-    top_bar.addWidget(back_to_previous_btn)
-    
-
     top_bar.addWidget(back_to_previous_btn)
     top_bar.addStretch()
     # Right: Back to Program button
@@ -1044,11 +1042,14 @@ def create_assign_status_screen(stack, state) -> QWidget:
     scroll.setWidgetResizable(True)
     scroll_content, scroll_layout = make_scroll_content()
     scroll.setWidget(scroll_content)
+    status_table = QTableWidget()
+    status_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+    status_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
 
 
-    info_btn = QPushButton("Notes Legend")
-    info_btn.setFixedWidth(150)
+
+    
     def populate_file_dropdown(file_dropdown: QComboBox, state: Dict, session_csvs: List[str], dataframes: List[pd.DataFrame]):
         current_index = file_dropdown.currentIndex()
         selected_text = file_dropdown.currentText()
@@ -1073,25 +1074,6 @@ def create_assign_status_screen(stack, state) -> QWidget:
 
         file_dropdown.blockSignals(False)
 
-    def show_notes_info():
-        QMessageBox.information(
-            screen,
-            "How Notes Determine Status",
-            (
-                "The status of each participant is determined by the content of their Notes column.\n\n"
-                "• Contains 'comped' → Status: Comped\n"
-                "• Contains 'no capacity, and room on the waiting list : register' → Status: Waitlist\n"
-                "• Contains 'refund' → Status: Refund\n"
-                "• Contains 'manually confirmed by' → Status: Manual\n"
-                "• Contains 'not over capacity: register' → Status: Regular\n"
-                "• Anything else → Status: Other\n"
-                "• If it's a PayPal attendee issue, mark them as regular\n"
-                "• If they paid cash, mark them as Manual"
-            )
-        )
-
-    info_btn.clicked.connect(show_notes_info)
-
     file_dropdown_row = QHBoxLayout()
     file_dropdown.setContentsMargins(0, 0, 0, 0)
 
@@ -1102,7 +1084,6 @@ def create_assign_status_screen(stack, state) -> QWidget:
     spacer = QSpacerItem(10, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
     file_dropdown_row.addItem(spacer)
 
-    file_dropdown_row.addWidget(info_btn)
     file_dropdown_row.addStretch()  # Optional: keep this if you want the button to still shift right on window resize
 
     
@@ -1125,22 +1106,54 @@ def create_assign_status_screen(stack, state) -> QWidget:
     left_layout.addWidget(next_btn)
 
     # Right layout (Other display)
+    # Right layout: vertical split of top row (other + legend) and bottom row (status table)
     right_layout = QVBoxLayout()
     main_layout.setSpacing(12)
     main_layout.setContentsMargins(8, 8, 8, 8)
     right_layout.setSpacing(6)
 
-    # Top: Other people
-    right_layout.addWidget(QLabel("People with status 'Other' (by file):"))
-    other_display = QTextEdit()
-    other_display.setReadOnly(True)
-    right_layout.addWidget(other_display)
+    # Top row: horizontal layout of other_display and notes legend
+    top_right_row = QHBoxLayout()
 
-    # Bottom: Status Counts
+    # Left: People with status 'Other'
+    left_half = QVBoxLayout()
+    left_half.addWidget(QLabel("People with 'Other'"))
+    other_display = QTextEdit()
+    other_display.setFixedWidth(250)
+    other_display.setReadOnly(True)
+    left_half.addWidget(other_display)
+
+    # Right: Notes Legend
+    right_half = QVBoxLayout()
+    right_half.addWidget(QLabel("Notes Legend:"))
+    legend_text = QTextEdit()
+    legend_text.setReadOnly(True)
+    legend_text.setPlainText(
+        "• Contains 'comped' → Status: Comped\n"
+        "• Contains 'no capacity, and room on the waiting list : register' → Waitlist\n"
+        "• Contains 'refund' → Refund\n"
+        "• Contains 'manually confirmed by' → Manual\n"
+        "• Contains 'not over capacity: register' → Regular\n"
+        "• Anything else → Other\n"
+        "• PayPal issue? → Regular\n"
+        "• Paid cash? → Manual"
+    )
+    right_half.addWidget(legend_text)
+
+    top_right_row.addLayout(left_half, 1)
+    top_right_row.addLayout(right_half, 1)
+
+    # Add top row and bottom status table to the right layout
+    # Add top row (other + legend) and bottom table
+    right_layout.addLayout(top_right_row)
+    right_layout.addSpacing(12)  # Optional: spacing between top and table
     right_layout.addWidget(QLabel("Status Counts by File:"))
-    status_table = QTableWidget()
-    status_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
     right_layout.addWidget(status_table)
+
+
+
+
+
 
     # Get current session folder
     current_session = state.get("current_session")
@@ -1398,6 +1411,9 @@ def create_assign_status_screen(stack, state) -> QWidget:
 
         row_count = len(counts_per_file)
         status_table.setRowCount(row_count + 1)  # +1 for totals
+        for i in range(row_count + 1):
+            status_table.setRowHeight(i, 50)  # 🔥 Adjust this value as needed (e.g., 40 for extra padding)
+
         status_table.setColumnCount(len(statuses))
         status_table.setHorizontalHeaderLabels([s.capitalize() for s in statuses])
         status_table.setVerticalHeaderLabels(list(counts_per_file.keys()) + ["Total"])
@@ -1409,6 +1425,7 @@ def create_assign_status_screen(stack, state) -> QWidget:
                 val = counts.get(status, 0)
                 item = QTableWidgetItem(str(val))
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 status_table.setItem(row_idx, col_idx, item)
                 totals[status] += val
 
@@ -1416,6 +1433,7 @@ def create_assign_status_screen(stack, state) -> QWidget:
         for col_idx, status in enumerate(statuses):
             total_val = totals[status]
             item = QTableWidgetItem(str(total_val))
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             status_table.setItem(row_count, col_idx, item)
 
@@ -1587,11 +1605,17 @@ def create_assign_status_screen(stack, state) -> QWidget:
     left_container.setMinimumWidth(800)
     left_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
+
     right_container = QWidget()
     right_container.setLayout(right_layout)
 
-    main_layout.addWidget(left_container, stretch=1)   # Left is smaller
-    main_layout.addWidget(right_container, stretch=2)  # Right expands more
+
+
+    main_layout.addWidget(left_container, stretch=1)
+    main_layout.addWidget(right_container, stretch=2)
+
+
+
 
     def refresh_file_dropdown():
         populate_file_dropdown(file_dropdown, state, session_csvs, dataframes)
@@ -1627,8 +1651,12 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
     saved_prices = {}
     nav_row = QHBoxLayout()
 
+    def save_and_go_back():
+        save_fee_schedule()
+        stack.setCurrentIndex(2)
+
     back_btn = QPushButton("Back")
-    back_btn.clicked.connect(lambda: stack.setCurrentIndex(2))
+    back_btn.clicked.connect(save_and_go_back)
     nav_row.addWidget(back_btn)
 
     next_btn = QPushButton("Next")
@@ -1688,7 +1716,7 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
             inp.setValidator(validator)
             inp.setPlaceholderText("Enter cost")
             if fname in saved_prices:
-                inp.setText(str(saved_prices[fname]))
+                inp.setText(f"{float(saved_prices[fname]):.2f}")
             else:
                 inp.setText("10.00")
 
@@ -1779,13 +1807,26 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
         state["signals"].dataChanged.emit()
 
     def assign_all():
-        val = bulk_input.text()
-        if val:
-            for field in fee_inputs.values():
-                field.setText(val)
+        val = bulk_input.text().strip()
+        if not val:
+            return
+
+        confirm = QMessageBox.question(
+            screen,
+            "Confirm Bulk Assign",
+            f"This will set all file fees to ${val}. Proceed?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        for field in fee_inputs.values():
+            field.setText(f"{float(val):.2f}")
         save_fee_schedule()
         update_next_button_state()
 
+
+    """
     def reset_all():
         bulk_input.clear()
         for field in fee_inputs.values():
@@ -1793,18 +1834,22 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
         state["fee_schedule"] = {fname: 10.00 for fname in fee_inputs}
         save_fee_schedule()
         update_next_button_state()
+    """
 
     assign_all_btn = QPushButton("Assign All")
     assign_all_btn.clicked.connect(assign_all)
     layout.addWidget(assign_all_btn)
 
+    """ 
     reset_all_btn = QPushButton("Reset All")
     reset_all_btn.clicked.connect(reset_all)
     layout.addWidget(reset_all_btn)
+ 
 
     save_btn = QPushButton("Save Fee Schedule")
     save_btn.clicked.connect(save_fee_schedule)
     layout.addWidget(save_btn)
+    """
 
     # Navigation
     
@@ -1825,12 +1870,11 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
             inp.setPlaceholderText("Enter cost")
             saved_price = state.get("fee_schedule", {}).get(fname)
             if saved_price is not None:
-                inp.setText(str(saved_price))
+                inp.setText(f"{float(saved_price):.2f}")
             file_form.addRow(QLabel(fname), inp)
             fee_inputs[fname] = inp
         update_next_button_state()
 
-    layout.addLayout(nav_row)
     layout.addStretch()  # optional but nice
 
     screen.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -1840,32 +1884,68 @@ def create_fee_schedule_screen(stack, state) -> QWidget:
 def create_payment_summary_screen(stack, state) -> QWidget:
     screen = QWidget()
     layout = QVBoxLayout(screen)
+    mode = state.get("payment_summary_mode", "sorted")
+
 
     # Top row: Mark as Unpaid | Payment Summary | Mark as Paid
     top_row = QHBoxLayout()
 
-    unpaid_btn = QPushButton("Mark as Unpaid")
+    #unpaid_btn = QPushButton("Mark as Unpaid")
     paid_btn = QPushButton("Mark as Paid")
     header = QLabel("Payment Summary")
     header.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-    top_row.addWidget(unpaid_btn, alignment=Qt.AlignmentFlag.AlignLeft)
-    top_row.addStretch()
+    #top_row.addWidget(unpaid_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+    #top_row.addStretch()
     top_row.addWidget(header, alignment=Qt.AlignmentFlag.AlignCenter)
     top_row.addStretch()
     top_row.addWidget(paid_btn, alignment=Qt.AlignmentFlag.AlignRight)
 
     layout.addLayout(top_row)
+        # --- View Toggle Radio Buttons ---
+    toggle_box = QGroupBox("View Mode")
+    toggle_layout = QHBoxLayout()
+    sorted_btn = QRadioButton("Sorted")
+    unsorted_btn = QRadioButton("Unsorted")
+    if mode == "unsorted":
+        unsorted_btn.setChecked(True)
+    else:
+        sorted_btn.setChecked(True)
+
+
+    def on_mode_changed():
+        mode = "sorted" if sorted_btn.isChecked() else "unsorted"
+        state["payment_summary_mode"] = mode
+        build_payment_summary(mode)
+
+
+
+
+
+    sorted_btn.toggled.connect(on_mode_changed)
+    unsorted_btn.toggled.connect(on_mode_changed)
+
+    toggle_layout.addWidget(sorted_btn)
+    toggle_layout.addWidget(unsorted_btn)
+    toggle_box.setLayout(toggle_layout)
+    layout.addWidget(toggle_box)
 
     # Container layout to be refreshable
-    summary_container = QVBoxLayout()
-    layout.addLayout(summary_container)
+    summary_container_widget = QWidget()
+    summary_container = QVBoxLayout(summary_container_widget)
+    layout.addWidget(summary_container_widget)
 
-    def build_payment_summary():
-        while summary_container.count():
-            child = summary_container.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+    def build_payment_summary(mode="sorted"):
+        def clear_layout(layout: QLayout):
+            while layout.count():
+                item = layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+                elif item.layout():
+                    clear_layout(item.layout())
+                    item.layout().deleteLater()
+
+        clear_layout(summary_container)
 
         session_dir = state.get("current_session")
         club_name = "Club"
@@ -1879,79 +1959,155 @@ def create_payment_summary_screen(stack, state) -> QWidget:
                 except:
                     pass
 
-        # Status summary table
-        statuses = STATUS_LIST
+        statuses_to_show = STATUS_LIST[:-1]
         status_counts = state.get("status_counts", {})
-        filenames = list(status_counts.keys())
-
-        status_table = QTableWidget()
-        status_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-
-        status_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        status_table.setRowCount(len(filenames) + 1)
-        status_table.setColumnCount(len(statuses))
-        status_table.setHorizontalHeaderLabels([s.capitalize() for s in statuses])
-        status_table.setVerticalHeaderLabels(filenames + ["Total"])
-
-        totals = dict.fromkeys(statuses, 0)
-        for row_idx, fname in enumerate(filenames):
-            counts = status_counts.get(fname, {})
-            for col_idx, status in enumerate(statuses):
-                count = int(counts.get(status, 0))
-                item = QTableWidgetItem(str(count))
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                status_table.setItem(row_idx, col_idx, item)
-                totals[status] += count
-
-        for col_idx, status in enumerate(statuses):
-            status_table.setItem(len(filenames), col_idx, QTableWidgetItem(str(totals[status])))
-
-        status_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        summary_container.addWidget(status_table)
-
-        # Financial table
-        summary_container.addWidget(QLabel("Financial Summary"))
-        columns = ["Gross", "TrackitHub", "PayPal", club_name]
-        financial_table = QTableWidget()
-        financial_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        financial_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        financial_table.setColumnCount(len(columns))
-        financial_table.setRowCount(len(filenames) + 1)
-        financial_table.setHorizontalHeaderLabels(columns)
-        financial_table.setVerticalHeaderLabels(filenames + ["Total"])
-
         fee_schedule = state.get("fee_schedule", {})
-        totals = dict.fromkeys(columns, 0.0)
+        columns = ["Gross", "TrackitHub", "PayPal", club_name]
 
-        for row_idx, fname in enumerate(filenames):
-            price = fee_schedule.get(fname, 0)
-            counts = status_counts.get(fname, {})
-            regular = counts.get("regular", 0)
-            manual = counts.get("manual", 0)
+        grand_status_totals = dict.fromkeys(statuses_to_show, 0)
+        grand_financial_totals = dict.fromkeys(columns, 0.0)
 
-            gross = (regular + manual) * price
-            trackithub = gross * 0.10
+        if mode == "unsorted":
+            all_files = sorted(status_counts.keys())
+            grouped = {"All Files": all_files}
+        else:
+            grouped = {}
+            for fname in status_counts:
+                price = fee_schedule.get(fname, 0.0)
+                grouped.setdefault(price, []).append(fname)
 
-            paypal = 0.0
-            for _ in range(regular):
-                paypal += price * 0.05 + 0.09 if price <= 10 else price * 0.0349 + 0.49
+        financial_label_shown = False  # ✅ track if we've added the label
 
-            net_to_club = gross - trackithub - paypal
-            row_values = [gross, trackithub, paypal, net_to_club]
+        for group_key in (sorted(grouped) if mode == "sorted" else grouped):
+            files = sorted(grouped[group_key])
+            price = group_key if mode == "sorted" else None
+            label_text = f"======== ${price:.2f} ========" if mode == "sorted" else "======== All Files ========"
+            label = QLabel(label_text)
+            label.setStyleSheet("font-weight: bold; padding: 6px;")
 
-            for col_idx, value in enumerate(row_values):
-                item = QTableWidgetItem(f"${value:.2f}")
+            row_layout = QHBoxLayout()
+            left_col = QVBoxLayout()
+            left_col.addWidget(label)
+
+            show_total = len(files) > 1
+
+            # Status Table
+            status_table = QTableWidget()
+            status_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            status_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            status_table.setColumnCount(len(statuses_to_show))
+            status_table.setRowCount(len(files) + (1 if show_total else 0))
+            status_table.setHorizontalHeaderLabels([s.capitalize() for s in statuses_to_show])
+            status_table.setVerticalHeaderLabels(files + (["Total"] if show_total else []))
+            status_totals = dict.fromkeys(statuses_to_show, 0)
+
+            for row_idx, fname in enumerate(files):
+                counts = status_counts.get(fname, {})
+                for col_idx, status in enumerate(statuses_to_show):
+                    count = int(counts.get(status, 0))
+                    item = QTableWidgetItem(str(count))
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    status_table.setItem(row_idx, col_idx, item)
+                    status_totals[status] += count
+                    grand_status_totals[status] += count
+
+            if show_total:
+                for col_idx, status in enumerate(statuses_to_show):
+                    item = QTableWidgetItem(str(status_totals[status]))
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    status_table.setItem(len(files), col_idx, item)
+
+            status_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            left_col.addWidget(status_table)
+
+            # Financial Table
+            right_col = QVBoxLayout()
+            if not financial_label_shown:
+                right_col.addWidget(QLabel("Financial Summary"))
+                financial_label_shown = True
+
+            financial_table = QTableWidget()
+            financial_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            financial_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            financial_table.setColumnCount(len(columns))
+            financial_table.setRowCount(len(files) + (1 if show_total else 0))
+            financial_table.setHorizontalHeaderLabels(columns)
+            financial_table.setVerticalHeaderLabels(files + (["Total"] if show_total else []))
+            financial_totals = dict.fromkeys(columns, 0.0)
+
+            for row_idx, fname in enumerate(files):
+                price = fee_schedule.get(fname, 0.0)
+                counts = status_counts.get(fname, {})
+                regular = counts.get("regular", 0)
+                manual = counts.get("manual", 0)
+
+                gross = (regular + manual) * price
+                trackithub = gross * 0.10
+                paypal = sum(
+                    price * 0.05 + 0.09 if price <= 10 else price * 0.0349 + 0.49
+                    for _ in range(regular)
+                )
+                net = gross - trackithub - paypal
+                vals = [gross, trackithub, paypal, net]
+
+                for col_idx, val in enumerate(vals):
+                    item = QTableWidgetItem(f"${val:.2f}")
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    financial_table.setItem(row_idx, col_idx, item)
+                    financial_totals[columns[col_idx]] += val
+                    grand_financial_totals[columns[col_idx]] += val
+
+            if show_total:
+                for col_idx, col in enumerate(columns):
+                    item = QTableWidgetItem(f"${financial_totals[col]:.2f}")
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    financial_table.setItem(len(files), col_idx, item)
+
+            financial_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            right_col.addWidget(financial_table)
+
+            row_layout.addLayout(left_col, 2)
+            row_layout.addLayout(right_col, 2)
+            summary_container.addLayout(row_layout)
+
+        # Grand Totals Section
+        if mode == "sorted":
+            row_layout = QHBoxLayout()
+            left_col = QVBoxLayout()
+
+            status_table = QTableWidget(1, len(statuses_to_show))
+            status_table.setHorizontalHeaderLabels([s.capitalize() for s in statuses_to_show])
+            for col_idx, status in enumerate(statuses_to_show):
+                val = grand_status_totals[status]
+                item = QTableWidgetItem(str(val))
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                financial_table.setItem(row_idx, col_idx, item)
-                totals[columns[col_idx]] += value
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                status_table.setItem(0, col_idx, item)
+            status_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            left_col.addWidget(status_table)
 
-        for col_idx, col_name in enumerate(columns):
-            financial_table.setItem(len(filenames), col_idx, QTableWidgetItem(f"${totals[col_name]:.2f}"))
+            right_col = QVBoxLayout()
+            financial_table = QTableWidget(1, len(columns))
+            financial_table.setHorizontalHeaderLabels(columns)
+            for col_idx, col in enumerate(columns):
+                val = grand_financial_totals[col]
+                item = QTableWidgetItem(f"${val:.2f}")
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                financial_table.setItem(0, col_idx, item)
+            financial_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            right_col.addWidget(financial_table)
 
-        financial_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        summary_container.addWidget(financial_table)
+            row_layout.addLayout(left_col, 2)
+            row_layout.addLayout(right_col, 2)
+            summary_container.addLayout(row_layout)
 
-    build_payment_summary()
+        
+    build_payment_summary(mode)
 
     def update_paid_status(status: bool):
         session_dir = state.get("current_session")
@@ -1980,7 +2136,7 @@ def create_payment_summary_screen(stack, state) -> QWidget:
 
     paid_btn.clicked.connect(on_mark_paid)
 
-    unpaid_btn.clicked.connect(lambda: update_paid_status(False))
+    #unpaid_btn.clicked.connect(lambda: update_paid_status(False))
 
     def refresh_summary():
         new_screen = create_payment_summary_screen(stack, state)
@@ -2014,7 +2170,7 @@ def create_program_flow_tab(state: Dict, stack:QStackedWidget) -> QStackedWidget
 
     return stack
 
-def create_all_sessions_tab(state: Dict) -> QWidget:
+def create_all_sessions_tab(state: dict) -> QWidget:
     class AllSessionsTabSignals(QObject):
         fileDoubleClicked = pyqtSignal(str)
 
@@ -2030,33 +2186,62 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
     header.setAlignment(Qt.AlignmentFlag.AlignLeft)
     header_row.addWidget(header)
 
-    # Filter buttons
-    flagged_btn = QPushButton("Flagged")
-    unflagged_btn = QPushButton("Unflagged")
-    paid_btn = QPushButton("Paid")
-    unpaid_btn = QPushButton("Unpaid")
-    reset_btn = QPushButton("Reset Filters")
+    # Flagged/Unflagged Radio Group
+    flag_group = QButtonGroup(scr)
+    flagged_radio = QRadioButton("Flagged")
+    unflagged_radio = QRadioButton("Unflagged")
+    dummy_flag_radio = QRadioButton()
+    dummy_flag_radio.hide()
+    flag_group.setExclusive(True)
+    flag_group.addButton(flagged_radio)
+    flag_group.addButton(unflagged_radio)
+    flag_group.addButton(dummy_flag_radio)
 
-    for btn in [flagged_btn, unflagged_btn, paid_btn, unpaid_btn]:
-        btn.setCheckable(True)
+    # Paid/Unpaid Radio Group
+    pay_group = QButtonGroup(scr)
+    paid_radio = QRadioButton("Paid")
+    unpaid_radio = QRadioButton("Unpaid")
+    dummy_pay_radio = QRadioButton()
+    dummy_pay_radio.hide()
+    pay_group.setExclusive(True)
+    pay_group.addButton(paid_radio)
+    pay_group.addButton(unpaid_radio)
+    pay_group.addButton(dummy_pay_radio)
 
-    header_row.addWidget(flagged_btn)
-    header_row.addWidget(unflagged_btn)
-    header_row.addWidget(paid_btn)
-    header_row.addWidget(unpaid_btn)
-    header_row.addWidget(reset_btn)
+    # Reset Menu Button
+    reset_menu_btn = QToolButton()
+    reset_menu_btn.setText("Reset Filters ▼")
+    reset_menu = QMenu()
+    reset_menu.addAction("Clear All", lambda: clear_all_filters())
+    reset_menu.addAction("Clear Flagged/Unflagged", lambda: clear_filter_group(flag_group, dummy_flag_radio))
+    reset_menu.addAction("Clear Paid/Unpaid", lambda: clear_filter_group(pay_group, dummy_pay_radio))
+    reset_menu_btn.setMenu(reset_menu)
+    reset_menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+
+    # Add to layout
+    header_row.addWidget(flagged_radio)
+    header_row.addWidget(unflagged_radio)
+    header_row.addSpacing(12)
+    header_row.addWidget(paid_radio)
+    header_row.addWidget(unpaid_radio)
+    header_row.addSpacing(12)
+    header_row.addWidget(reset_menu_btn)
     header_row.addStretch()
     layout.addLayout(header_row)
+
+    # Ensure dummy buttons persist
+    layout.addWidget(dummy_flag_radio)
+    layout.addWidget(dummy_pay_radio)
 
     # Tree
     tree = QTreeWidget()
     tree.setHeaderHidden(True)
     tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
     layout.addWidget(tree)
-    tree.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+    tree.setSizePolicy(tree.sizePolicy().Policy.Expanding, tree.sizePolicy().Policy.Expanding)
 
     # Edit UI
-    edit_box = QGroupBox("Edit AnkleBreaker Notes")
+    edit_box = QGroupBox("Edit Player Notes")
     edit_layout = QFormLayout(edit_box)
 
     selected_file_label = QLabel("Selected file: None")
@@ -2066,7 +2251,7 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
     abnote_input = QLineEdit()
     save_btn = QPushButton("Save Note")
     edit_layout.addRow("Select Name:", name_dropdown)
-    edit_layout.addRow("AnkleBreaker Note:", abnote_input)
+    edit_layout.addRow("Player Note:", abnote_input)
     edit_layout.addWidget(save_btn)
     layout.addWidget(edit_box)
     edit_box.setEnabled(False)
@@ -2075,7 +2260,6 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
     selected_file = None
     df = None
 
-    
     def refresh_all_sessions():
         tree.clear()
         sessions_path = SESSIONS_DIR
@@ -2100,10 +2284,10 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
         sessions.sort(key=lambda x: x[3], reverse=True)
 
         # Apply filters
-        show_flagged = flagged_btn.isChecked()
-        show_unflagged = unflagged_btn.isChecked()
-        show_paid = paid_btn.isChecked()
-        show_unpaid = unpaid_btn.isChecked()
+        show_flagged = flagged_radio.isChecked()
+        show_unflagged = unflagged_radio.isChecked()
+        show_paid = paid_radio.isChecked()
+        show_unpaid = unpaid_radio.isChecked()
 
         for session_name, session_path, metadata, _ in sessions:
             is_flagged = "-flag" in session_name
@@ -2142,7 +2326,6 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
         if parent is None:
             return
         selected_session = parent.text(0).split(" — ")[0]
-
         selected_file = item.text(0)
         selected_file_label.setText(f"Selected file: {selected_file}")
 
@@ -2152,22 +2335,17 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
             return
         try:
             df = pd.read_csv(full_path)
-
             if "AnkleBreaker notes" not in df.columns:
                 df["AnkleBreaker notes"] = ""
-
             if "Name" in df.columns:
                 name_dropdown.blockSignals(True)
                 name_dropdown.clear()
                 name_dropdown.addItems(df["Name"].dropna().astype(str).tolist())
                 name_dropdown.blockSignals(False)
-
                 if not df["Name"].empty:
                     name_dropdown.setCurrentIndex(0)
                     on_name_selected(name_dropdown.currentText())
-
                 edit_box.setEnabled(True)
-
         except Exception:
             df = None
             edit_box.setEnabled(False)
@@ -2202,7 +2380,6 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
             df["AnkleBreaker notes"] = ""
         df["AnkleBreaker notes"] = df["AnkleBreaker notes"].astype(str)
         df.loc[df["Name"] == name, "AnkleBreaker notes"] = abnote_input.text()
-
         df["default_status"] = df.apply(lambda row: determine_default_status(row["Notes"], row["Name"]), axis=1)
 
         session_path = os.path.join(SESSIONS_DIR, selected_session)
@@ -2214,23 +2391,19 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
         state["signals"].dataChanged.emit()
         refresh_all_sessions()
 
-    # --- Filter logic connections ---
-    def update_filter(exclusive_btn, counterpart_btn):
-        if exclusive_btn.isChecked():
-            counterpart_btn.setChecked(False)
+    def clear_filter_group(group: QButtonGroup, dummy: QRadioButton):
+        dummy.setChecked(True)
         refresh_all_sessions()
 
-    flagged_btn.clicked.connect(lambda: update_filter(flagged_btn, unflagged_btn))
-    unflagged_btn.clicked.connect(lambda: update_filter(unflagged_btn, flagged_btn))
-    paid_btn.clicked.connect(lambda: update_filter(paid_btn, unpaid_btn))
-    unpaid_btn.clicked.connect(lambda: update_filter(unpaid_btn, paid_btn))
+    def clear_all_filters():
+        clear_filter_group(flag_group, dummy_flag_radio)
+        clear_filter_group(pay_group, dummy_pay_radio)
 
-    def full_refresh_filters():
-        for btn in [flagged_btn, unflagged_btn, paid_btn, unpaid_btn]:
-            btn.setChecked(False)
-        refresh_all_sessions()
-
-    reset_btn.clicked.connect(full_refresh_filters)
+    # Signals
+    flagged_radio.toggled.connect(refresh_all_sessions)
+    unflagged_radio.toggled.connect(refresh_all_sessions)
+    paid_radio.toggled.connect(refresh_all_sessions)
+    unpaid_radio.toggled.connect(refresh_all_sessions)
 
     tree.itemClicked.connect(on_tree_item_selected)
     tree.currentItemChanged.connect(on_tree_item_selected)
@@ -2242,8 +2415,7 @@ def create_all_sessions_tab(state: Dict) -> QWidget:
     refresh_all_sessions()
 
     scr.refresh = refresh_all_sessions
-    scr.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-
+    scr.setSizePolicy(scr.sizePolicy().Policy.Expanding, scr.sizePolicy().Policy.Expanding)
     return scr
 
 def create_current_session_files_tab(state: Dict) -> QWidget:
@@ -2824,8 +2996,6 @@ def create_main_window() -> QWidget:
     top_bar.addWidget(anklebar_btn)
     top_bar.addSpacing(12)  # optional small gap
     top_bar.addWidget(past_sessions_btn)
-
-    top_bar.addWidget(past_sessions_btn)
     top_bar.addWidget(session_label)
     top_bar.addStretch()
 
@@ -2934,10 +3104,11 @@ def create_main_window() -> QWidget:
             except Exception as e:
                 QMessageBox.critical(container, "Delete Failed", f"Could not delete session:\n\n{e}")
 
-    anklebar_menu.addAction(QAction("Load Session", container, triggered=open_folder_dialog))
+    #anklebar_menu.addAction(QAction("Home", container, triggered=open_folder_dialog)) Placeholder for now
+    anklebar_menu.addAction(QAction("Load Session Folder", container, triggered=open_folder_dialog))
+    anklebar_menu.addAction(QAction("Delete Session Folder", container, triggered=delete_session_dialog))
     anklebar_menu.addAction(QAction("Reset Session", container, triggered=reset_session_wrapper))
     anklebar_menu.addAction(QAction("Set Data Folder Location", container, triggered=choose_base_path_dialog))
-    anklebar_menu.addAction(QAction("Delete Session", container, triggered=delete_session_dialog))
 
     past_sessions_btn.clicked.connect(launch_graphical_loader)
 
@@ -3021,7 +3192,7 @@ def main() -> None:
         tab_widget.currentChanged.connect(refresh_dynamic_tab)
 
     main_widget.setWindowTitle("AnkleBreaker")
-    main_widget.resize(1475, 800)
+    main_widget.resize(1900, 1000)
     main_widget.show()
     sys.exit(app.exec())
 

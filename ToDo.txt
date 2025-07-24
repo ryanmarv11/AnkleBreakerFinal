@@ -257,19 +257,21 @@ For the future) If we could have the amount that was paid in the notes, somethin
 Temporary) Put the margins back in between buttons in the top right
 Make button sizes the same for view all and individual file view
 7/22
-1) Assign status screen, font should be smaller and not bold
-2) Assign status screen, make the other graphic smaller, put the notes legend on the other side of the Other graphic
-3) Assign status screen, Make the rows thicker
-4) Assign fee schedule screen, remove reset all and save fee schedule buttons
-5) Assign fee schedule screen, implement save fee schedule feature to back button
-6) Assign fee schedule screen, make sure that decimals are never cut off
-7) Assign fee schedule screen, add confirmation dialog to assign all
-8) Payment summary screen, group tables by price
-9) Payment summary screen, have the graphic be similar to the assign status layout where there's an extra space
-10) Payment summary screen, remove mark as unpaid button
+1*) Assign status screen, font should be smaller and not bold
+2*) Assign status screen, make the other graphic smaller, put the notes legend on the other side of the Other graphic
+3*) Assign status screen, Make the rows thicker
+4*) Assign fee schedule screen, remove reset all and save fee schedule buttons
+5*) Assign fee schedule screen, implement save fee schedule feature to back button
+6*) Assign fee schedule screen, make sure that decimals are never cut off
+7*) Assign fee schedule screen, add confirmation dialog to assign all
+8*) Payment summary screen, group tables by price
+9*) Payment summary screen, have the graphic be similar to the assign status layout where there's an extra space
+10*) Payment summary screen, remove mark as unpaid button
 11) Make AnkleBar icon a settings wheel
 12) All sessions tab, remove highlighted background
 13) All sessions tab, make it bigger
-14) All sessions tab, change label to Edit Player Notes
-15) All sessions tab, turn filters into radio buttons, have reset filters be a pulldown
-16) AnkleBar order, Home, Load Session Folder, Delete Dession Folder, Reset Session, Set Data Folder Location
+14*) All sessions tab, change label to Edit Player Notes
+15*) All sessions tab, turn filters into radio buttons, have reset filters be a pulldown
+16*) AnkleBar order, Home, Load Session Folder, Delete Dession Folder, Reset Session, Set Data Folder Location
+17) All QTreeWidgets must also always have 2 decimal points
+18) Look up how to ensure that a font is downloaded or included in the executable

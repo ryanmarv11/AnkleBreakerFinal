@@ -1,0 +1,81 @@
+font_bundling.txt
+Place your font(s) in a subfolder of your project, e.g.:
+
+css
+Copy
+Edit
+project_folder/
+├── fonts/
+│   └── Roboto-Thin.ttf
+├── main.py
+├── style.qss
+✅ 2. Load the font manually at runtime
+Before applying your stylesheet, register the font:
+
+python
+Copy
+Edit
+from PyQt6.QtGui import QFontDatabase
+
+# Load the font(s) at runtime
+QFontDatabase.addApplicationFont("fonts/Roboto-Thin.ttf")
+You can also load all fonts in the fonts/ directory if you prefer to be general:
+
+python
+Copy
+Edit
+import os
+for font in os.listdir("fonts"):
+    QFontDatabase.addApplicationFont(os.path.join("fonts", font))
+This ensures the font will work even if the system doesn’t already have it installed.
+
+✅ 3. Reference it in your QSS
+Now that the font is loaded, you can use it in your style.qss:
+
+css
+Copy
+Edit
+QTableWidget {
+    font-family: "Roboto Thin", "Roboto", sans-serif;
+    font-size: 14px;
+    font-weight: 100;
+}
+✅ 4. PyInstaller: bundle the font
+In your pyinstaller.spec (or via the --add-data flag), include the font:
+
+If using .spec file:
+python
+Copy
+Edit
+datas = [
+    ("fonts/Roboto-Thin.ttf", "fonts"),
+    ("style.qss", ".")
+]
+If using command line:
+bash
+Copy
+Edit
+pyinstaller main.py --add-data "fonts/Roboto-Thin.ttf:fonts" --add-data "style.qss:."
+On Mac, replace : with = if using the bash version of PyInstaller:
+
+bash
+Copy
+Edit
+pyinstaller main.py --add-data "fonts/Roboto-Thin.ttf=fonts" --add-data "style.qss=."
+✅ 5. Use relative paths in your code
+Ensure that your path works in both dev and frozen (PyInstaller) mode:
+
+python
+Copy
+Edit
+import sys
+import os
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and PyInstaller """
+    base_path = getattr(sys, '_MEIPASS', os.path.abspath("."))
+    return os.path.join(base_path, relative_path)
+
+font_path = resource_path("fonts/Roboto-Thin.ttf")
+QFontDatabase.addApplicationFont(font_path)
+Let me know if you want a full drop-in loader for all fonts in a folder or help tweaking the .spec file.

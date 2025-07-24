@@ -35,13 +35,13 @@ QTableWidget {
     border: 1px solid #ccc;
     gridline-color: #aaa;
     font-size: 17px;
+    font-weight: 600;
 }
 
 QHeaderView::section {
     background-color: #e6e6e6;
     padding: 6px;
     border: 1px solid #dcdcdc;
-    font-weight: bold;
     font-size: 17px;
 }
 
