@@ -267,11 +267,11 @@ Make button sizes the same for view all and individual file view
 8*) Payment summary screen, group tables by price
 9*) Payment summary screen, have the graphic be similar to the assign status layout where there's an extra space
 10*) Payment summary screen, remove mark as unpaid button
-11) Make AnkleBar icon a settings wheel
+11*) Make AnkleBar icon a settings wheel
 12) All sessions tab, remove highlighted background
-13) All sessions tab, make it bigger
+13*) All sessions tab, make it bigger
 14*) All sessions tab, change label to Edit Player Notes
 15*) All sessions tab, turn filters into radio buttons, have reset filters be a pulldown
 16*) AnkleBar order, Home, Load Session Folder, Delete Dession Folder, Reset Session, Set Data Folder Location
-17) All QTreeWidgets must also always have 2 decimal points
+17*) All QTreeWidgets must also always have 2 decimal points
 18) Look up how to ensure that a font is downloaded or included in the executable

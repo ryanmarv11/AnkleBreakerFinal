@@ -15,12 +15,46 @@ QComboBox {
     background-color: white;
     border: 1px solid #cccccc;
     border-radius: 4px;
-    padding: 2px 30px 2px 6px; 
+    padding: 6px;
     font-size: 18px;
-    min-height: 36px;
-    margin-top: -2px;
-    padding-top: 2px;  
+    height: 50px;
 }
+
+
+
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 20px;
+    border-left: 1px solid #cccccc;
+    padding: 0px;
+    margin: 0px;
+    top: 0px;
+}
+
+
+QComboBox::down-arrow {
+    image: url(:/qt-project.org/styles/commonstyle/images/arrowdown.png);
+    width: 12px;
+    height: 12px;
+}
+
+QComboBox QAbstractItemView {
+    font-size: 18px;
+    selection-background-color: #e6f0ff;
+}
+
+QComboBox QLineEdit {
+    padding: 0px;
+    border: none;
+    background-color: transparent;
+    font-size: 18px;
+}
+
+
+
+
 
 QLineEdit, QTextEdit, QDateEdit {
     background-color: white;
@@ -43,22 +77,6 @@ QHeaderView::section {
     padding: 6px;
     border: 1px solid #dcdcdc;
     font-size: 17px;
-}
-
-QComboBox::drop-down {
-    subcontrol-origin: padding;
-    subcontrol-position: top right;
-    width: 20px;
-    border-left: 1px solid #cccccc;
-    margin-top: 2px;  
-    margin-right: 4px; 
-    top:-2px;
-}
-
-QComboBox::down-arrow {
-    image: url(:/qt-project.org/styles/commonstyle/images/arrowdown.png);
-    width: 12px;
-    height: 12px;
 }
 
 QTreeWidget {

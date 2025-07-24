@@ -39,6 +39,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpacerItem,
+    QSplitter,
     QStackedWidget,
     QTabWidget,
     QTableWidget,
@@ -81,6 +82,7 @@ COMPED_NAMES = {
     "zorano tubo",
     "kaleta tubo",
     "tiniira tubo",
+    "marena tubo",
     "cole hessler",
     "meyer knapp",
     "tina knapp",
@@ -701,7 +703,9 @@ def create_welcome_screen(stack: QStackedWidget, state: Dict) -> QWidget:
 
             status_text = "paid ✅" if paid_status else "unpaid ❌"
             net_total = metadata.get("net_to_club", "No total yet")
-            display_name = f"{session_name} — {status_text} — Total: {net_total}"
+            formatted_total = f"${net_total:.2f}" if isinstance(net_total, (int, float)) else "No total yet"
+            display_name = f"{session_name} — {status_text} — Total: {formatted_total}"
+
 
             parent_item = QTreeWidgetItem([display_name])
 
@@ -2237,23 +2241,50 @@ def create_all_sessions_tab(state: dict) -> QWidget:
     tree = QTreeWidget()
     tree.setHeaderHidden(True)
     tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-    layout.addWidget(tree)
-    tree.setSizePolicy(tree.sizePolicy().Policy.Expanding, tree.sizePolicy().Policy.Expanding)
+    splitter = QSplitter(Qt.Orientation.Vertical)
+    splitter.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-    # Edit UI
+    # Tree (top half)
+    tree.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
+    splitter.addWidget(tree)
+
+    # Edit Box (bottom half)
     edit_box = QGroupBox("Edit Player Notes")
     edit_layout = QFormLayout(edit_box)
+    edit_layout.setVerticalSpacing(12)  # Or 10, tweak as needed
+    edit_layout.setLabelAlignment(Qt.AlignmentFlag.AlignTop)
 
     selected_file_label = QLabel("Selected file: None")
     edit_layout.addRow(selected_file_label)
-
     name_dropdown = QComboBox()
+    name_dropdown.setMinimumHeight(50)
+    name_dropdown.setEditable(True)
+    name_dropdown.lineEdit().setReadOnly(True)
+
+
     abnote_input = QLineEdit()
     save_btn = QPushButton("Save Note")
-    edit_layout.addRow("Select Name:", name_dropdown)
+    select_label = QLabel("Select Name:")
+    select_label.setAlignment(Qt.AlignmentFlag.AlignTop)
+    edit_layout.addRow(select_label, name_dropdown)
+
     edit_layout.addRow("Player Note:", abnote_input)
     edit_layout.addWidget(save_btn)
-    layout.addWidget(edit_box)
+    edit_box.setEnabled(False)
+    splitter.addWidget(edit_box)
+    splitter.setSizes([200,250])
+    name_dropdown.setFixedHeight(50)
+    abnote_input.setFixedHeight(50)
+
+
+    # Adjust default height proportions
+    splitter.setStretchFactor(0, 1)  # Tree
+    splitter.setStretchFactor(1, 3)  # Edit box (more space)
+
+    layout.addWidget(splitter)
+
+    
+    
     edit_box.setEnabled(False)
 
     selected_session = None
@@ -2968,7 +2999,7 @@ def create_main_window() -> QWidget:
     top_bar.setContentsMargins(0, 0, 0, 6)
 
     anklebar_btn = QToolButton()
-    anklebar_btn.setText("📁 AnkleBar ▼")
+    anklebar_btn.setText("⚙️ AnkleBar")
     anklebar_btn.setMinimumHeight(40)
 
 
