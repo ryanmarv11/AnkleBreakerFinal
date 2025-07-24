@@ -1616,7 +1616,8 @@ def create_assign_status_screen(stack, state) -> QWidget:
 
 
     main_layout.addWidget(left_container, stretch=1)
-    main_layout.addWidget(right_container, stretch=2)
+    main_layout.addWidget(right_container, stretch=4)
+
 
 
 
@@ -2257,13 +2258,17 @@ def create_all_sessions_tab(state: dict) -> QWidget:
     selected_file_label = QLabel("Selected file: None")
     edit_layout.addRow(selected_file_label)
     name_dropdown = QComboBox()
-    name_dropdown.setMinimumHeight(50)
+    name_dropdown.setObjectName("playerNameField")
+
     name_dropdown.setEditable(True)
     name_dropdown.lineEdit().setReadOnly(True)
 
 
     abnote_input = QLineEdit()
+    abnote_input.setObjectName("playerNoteField")
     save_btn = QPushButton("Save Note")
+    save_btn.setFixedWidth(600)
+
     select_label = QLabel("Select Name:")
     select_label.setAlignment(Qt.AlignmentFlag.AlignTop)
     edit_layout.addRow(select_label, name_dropdown)
@@ -2276,16 +2281,6 @@ def create_all_sessions_tab(state: dict) -> QWidget:
     edit_box.setEnabled(False)
     splitter.addWidget(edit_box)
     splitter.setSizes([200,250])
-    name_dropdown.setFixedSize(600, 60)
-    abnote_input.setFixedSize(600, 400)
-
-
-
-
-
-
-
-
 
     # Adjust default height proportions
     splitter.setStretchFactor(0, 1)  # Tree
