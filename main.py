@@ -2268,13 +2268,23 @@ def create_all_sessions_tab(state: dict) -> QWidget:
     select_label.setAlignment(Qt.AlignmentFlag.AlignTop)
     edit_layout.addRow(select_label, name_dropdown)
 
-    edit_layout.addRow("Player Note:", abnote_input)
+    note_label = QLabel("Player Note:")
+    note_label.setAlignment(Qt.AlignmentFlag.AlignTop)
+    edit_layout.addRow(note_label, abnote_input)
+
     edit_layout.addWidget(save_btn)
     edit_box.setEnabled(False)
     splitter.addWidget(edit_box)
     splitter.setSizes([200,250])
-    name_dropdown.setFixedHeight(50)
-    abnote_input.setFixedHeight(50)
+    name_dropdown.setFixedSize(600, 60)
+    abnote_input.setFixedSize(600, 400)
+
+
+
+
+
+
+
 
 
     # Adjust default height proportions

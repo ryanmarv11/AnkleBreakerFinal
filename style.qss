@@ -1,7 +1,7 @@
 QWidget {
     font-family: "Segoe UI", sans-serif;
     font-size: 18px;
-    background-color: #f2f2f2;
+    background-color: white;
     color: #333333;
 }
 
@@ -9,19 +9,47 @@ QLabel {
     font-weight: bold;
     color: #2a2a2a;
     font-size: 18px;
+    background: transparent;
 }
 
-QComboBox {
+QGroupBox {
+    background: transparent;
+    border: 1px solid #888888;
+    border-radius: 4px;
+    margin-top: 28px;
+}
+
+QGroupBox:title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 6px 6px 2px 6px;
+    background: transparent;
+}
+
+ QComboBox {
     background-color: white;
     border: 1px solid #cccccc;
     border-radius: 4px;
-    padding: 6px;
+    padding: 0px;
     font-size: 18px;
-    height: 50px;
+    min-height: 60px;
+}
+
+QLineEdit {
+    background-color: white;
+    border: 1px solid #cccccc;
+    border-radius: 4px;
+    padding: 0px;
+    font-size: 18px;
+    min-height: 60px;
 }
 
 
-
+QLineEdit:focus, QComboBox:focus {
+    border: 2px solid #4a90e2;
+    background-color: white;
+    outline: none;
+}
 
 QComboBox::drop-down {
     subcontrol-origin: padding;
@@ -32,7 +60,6 @@ QComboBox::drop-down {
     margin: 0px;
     top: 0px;
 }
-
 
 QComboBox::down-arrow {
     image: url(:/qt-project.org/styles/commonstyle/images/arrowdown.png);
@@ -45,16 +72,6 @@ QComboBox QAbstractItemView {
     selection-background-color: #e6f0ff;
 }
 
-QComboBox QLineEdit {
-    padding: 0px;
-    border: none;
-    background-color: transparent;
-    font-size: 18px;
-}
-
-
-
-
 
 QLineEdit, QTextEdit, QDateEdit {
     background-color: white;
@@ -62,6 +79,8 @@ QLineEdit, QTextEdit, QDateEdit {
     border-radius: 4px;
     padding: 6px;
     font-size: 18px;
+    min-width: 250px;
+    min-height: 40px;
 }
 
 QTableWidget {
@@ -80,7 +99,7 @@ QHeaderView::section {
 }
 
 QTreeWidget {
-    background-color: #ffffff;
+    background-color: white;
     border: 1px solid #ccc;
     padding: 6px;
     font-size: 17px;
@@ -154,12 +173,14 @@ QLabel#fileHeaderLabel {
     font-size: 16pt;
     font-weight: bold;
     padding: 6px;
+    background: transparent;
 }
 
 QLabel#sessionStatusLabel {
     font-style: italic;
     padding-left: 8px;
     color: #333;
+    background: transparent;
 }
 
 /* --- MENU BUTTONS (AnkleBar + Past Club Sessions) --- */
