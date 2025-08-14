@@ -1442,7 +1442,15 @@ def create_assign_status_screen(stack, state) -> QWidget:
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             status_table.setItem(row_count, col_idx, item)
 
-        status_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        status_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        status_table.setColumnWidth(0, 80)  # ⬅️ set your preferred small size
+
+        for col in range(1, status_table.columnCount()):
+            status_table.horizontalHeader().setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch)
+        status_table.verticalHeader().setFixedWidth(140)  # 🔧 Set to your preferred width
+
+
+
 
     def update_person_buttons(df_index):
     # Fully replace scroll content with new widget + layout
@@ -1615,8 +1623,8 @@ def create_assign_status_screen(stack, state) -> QWidget:
     next_btn.clicked.connect(go_to_fee_schedule)
     left_container = QWidget()
     left_container.setLayout(left_layout)
-    left_container.setMinimumWidth(800)
     left_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+    left_container.setMinimumWidth(700)
 
 
     right_container = QWidget()
@@ -3237,7 +3245,7 @@ def main() -> None:
         tab_widget.currentChanged.connect(refresh_dynamic_tab)
 
     main_widget.setWindowTitle("AnkleBreaker")
-    main_widget.resize(1900, 1000)
+    main_widget.resize(1900, 1200)
     main_widget.show()
     sys.exit(app.exec())
 
