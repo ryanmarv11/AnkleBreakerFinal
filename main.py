@@ -82,7 +82,8 @@ COMPED_NAMES = {
     "zorano tubo",
     "kaleta tubo",
     "tiniira tubo",
-    "marena tubo",
+    "keliina tubo",
+    "marena tubo",s
     "cole hessler",
     "meyer knapp",
     "tina knapp",
@@ -1496,18 +1497,26 @@ def create_assign_status_screen(stack, state) -> QWidget:
                     person_box.addWidget(QLabel(f"{row['Name']} — Default: {row['default_status']}"))
                     def handler_fn(status, person=row):
                         def handler():
-                            for path in state["csv_paths"]:
-                                df = state["dataframes"][path]
-                                match = df[(df["Name"] == person["Name"]) & (df["Email"] == person["Email"])]
+                            # target only the file this row came from
+                            src_base = person.get("__source_file__")
+                            # find the full path for this basename
+                            target_path = next(
+                                (p for p in state["csv_paths"] if os.path.basename(p) == src_base),
+                                None
+                            )
+                            if not target_path:
+                                return  # safety
 
-                                if not match.empty:
-                                    df.at[match.index[0], "current_status"] = status
-                                    update_other_display()
-                                    update_status_counts()
-                                    update_flag_state_for_file(path, state, stack)
-                                    state["signals"].dataChanged.emit()
-                                    break
+                            df = state["dataframes"][target_path]
+                            match = df[(df["Name"] == person["Name"]) & (df["Email"] == person["Email"])]
+                            if not match.empty:
+                                df.at[match.index[0], "current_status"] = status
+                                update_other_display()
+                                update_status_counts()
+                                update_flag_state_for_file(target_path, state, stack)
+                                state["signals"].dataChanged.emit()
                         return handler
+
                     person_box.addWidget(make_status_buttons(row, handler_fn))
                     wrapper = QFrame()
                     wrapper.setLayout(person_box)
