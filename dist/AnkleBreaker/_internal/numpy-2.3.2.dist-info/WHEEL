@@ -1,6 +1,4 @@
 Wheel-Version: 1.0
 Generator: meson
 Root-Is-Purelib: false
-Tag: cp313-cp313-macosx_14_0_x86_64
-Generator: delocate 0.13.0
-
+Tag: cp313-cp313-win_amd64
